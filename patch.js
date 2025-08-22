@@ -3,10 +3,11 @@
 (function () {
   // Store the original `fetch` function
   const originalFetch = window.fetch;
+  // Keep track of the last song we sent a notification for to avoid duplicates.
+  let lastNotifiedTrackId = null;
 
   // Override the `fetch` function
   window.fetch = function (...args) {
-    // Log every fetch request for debugging purposes.
     const url = (args[0] instanceof Request) ? args[0].url : args[0];
 
     // Intercept the `nowplaying` API call
@@ -18,16 +19,20 @@
         const clonedResponse = response.clone();
         clonedResponse.json().then(data => {
           // Check if the data has the song information
-          const trackName = data.title;
-          const artistName = data.subtitle;
-          console.log(`Sonos-Subs Extension: Now playing "${trackName}" by "${artistName}"`);
-          // Send desktop notification here
-          new Notification('Now Playing', {
-            body: `${trackName} by ${artistName}`,
-            icon: 'icons/icon48.png' // Use your extension's icon
-          });
+          const trackName = data?.title;
+          const artistName = data?.subtitle;
+          const imageUrl = data?.images?.tile1x1;
+          const currentTrackId = trackName && artistName ? `${trackName} by ${artistName}` : null;
 
-          // TODO: Send this data back to the content script for processing
+          // Only send a notification if we have a valid song and it's different from the last one.
+          if (currentTrackId && currentTrackId !== lastNotifiedTrackId) {
+            // Update the state to the new song.
+            lastNotifiedTrackId = currentTrackId;
+
+            // Send the song data to the content script via a custom event
+            const event = new CustomEvent('SonosNowPlaying', { detail: { trackName, artistName, imageUrl } });
+            window.dispatchEvent(event);
+          }
         }).catch(e => console.error("Error processing nowplaying response:", e));
 
         // Return the original response so the page functions as expected

@@ -64,6 +64,20 @@
         transform: translateX(20px);
         background: #000; /* Black handle for 'on' state */
       }
+
+      .credits {
+        margin-top: 24px;
+        text-align: center;
+        font-size: 11px;
+        color: #888;
+      }
+      .credits a {
+        color: #aaa;
+        text-decoration: none;
+      }
+      .credits a:hover {
+        text-decoration: underline;
+      }
     </style>
   </head>
   <body>
@@ -72,6 +86,7 @@
       <label for="notificationsToggle">Show Song Notifications</label>
       <input type="checkbox" id="notificationsToggle" />
     </div>
+    <div class="credits">Lyrics by <a href="https://lyrics.ovh" target="_blank" rel="noopener noreferrer">lyrics.ovh</a></div>
     <script src="popup.js"></script>
   </body>
 </html>

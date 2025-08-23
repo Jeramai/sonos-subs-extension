@@ -229,6 +229,7 @@ class SonosSubsUI {
 
     // If the overlay is visible, refresh the lyrics for the new song.
     if (this.#overlay?.style.display !== 'none') {
+      this.#overlayContent.scrollTop = 0;
       this.#fetchAndDisplayLyrics(trackName, artistName);
     }
 

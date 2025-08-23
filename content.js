@@ -6,8 +6,8 @@ class SonosSubsUI {
   // --- Constants ---
   static #HEADER_BUTTON_ID = 'sonos-subs-header-button';
   static #OVERLAY_ID = 'sonos-subs-overlay';
-  static #OVERLAY_TEXT_ID = 'sonos-subs-overlay-text';
   static #OVERLAY_CLOSE_ID = 'sonos-subs-overlay-close';
+  static #OVERLAY_CONTENT_ID = 'sonos-subs-overlay-content';
 
   // SVG icons for the toggle button
   static #SUBTITLES_SVG = `<svg width="20px" height="20px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -18,7 +18,7 @@ class SonosSubsUI {
   // --- Private instance fields ---
   #headerButton = null;
   #overlay = null;
-  #overlayText = null;
+  #overlayContent = null;
   #closeButton = null;
   #observer = null;
 
@@ -89,7 +89,7 @@ class SonosSubsUI {
       left: '0',
       width: '100vw',
       height: '100vh',
-      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      backgroundColor: 'rgba(0, 0, 0, 0.925)',
       color: '#e1e1e1',
       display: 'none', // Hidden by default
       alignItems: 'center',
@@ -102,9 +102,19 @@ class SonosSubsUI {
       opacity: '0' // For fade-in/out effect
     });
 
-    this.#overlayText = document.createElement('span');
-    this.#overlayText.id = SonosSubsUI.#OVERLAY_TEXT_ID;
-    this.#overlayText.textContent = 'Waiting for song...';
+    this.#overlayContent = document.createElement('div');
+    this.#overlayContent.id = SonosSubsUI.#OVERLAY_CONTENT_ID;
+    this.#overlayContent.textContent = 'Waiting for song...';
+    Object.assign(this.#overlayContent.style, {
+      whiteSpace: 'pre-wrap',
+      overflowY: 'auto',
+      maxHeight: '80vh',
+      textAlign: 'center',
+      lineHeight: '1.5',
+      fontSize: '22px',
+      padding: '0 20px',
+      boxSizing: 'border-box',
+    });
 
     this.#closeButton = document.createElement('button');
     this.#closeButton.id = SonosSubsUI.#OVERLAY_CLOSE_ID;
@@ -122,7 +132,7 @@ class SonosSubsUI {
       lineHeight: '1',
     });
 
-    this.#overlay.append(this.#overlayText, this.#closeButton);
+    this.#overlay.append(this.#overlayContent, this.#closeButton);
     document.body.appendChild(this.#overlay);
   }
 
@@ -184,10 +194,8 @@ class SonosSubsUI {
   #handleNowPlaying(event) {
     const { trackName, artistName, imageUrl } = event.detail;
 
-    // Update the overlay text if the UI has been initialized
-    if (this.#overlayText) {
-      this.#overlayText.textContent = `Now Playing: ${trackName} by ${artistName}`;
-    }
+    // Fetch lyrics and update the overlay
+    this.#fetchAndDisplayLyrics(trackName, artistName);
 
     try {
       // Send the song data to the background script.
@@ -204,6 +212,36 @@ class SonosSubsUI {
       } else {
         console.error("Sonos-Subs: Unexpected error sending message:", error);
       }
+    }
+  }
+
+  /**
+   * Fetches lyrics from an API and displays them in the overlay.
+   * @param {string} trackName
+   * @param {string} artistName
+   */
+  async #fetchAndDisplayLyrics(trackName, artistName) {
+    if (!this.#overlayContent) return;
+
+    this.#overlayContent.textContent = `Loading lyrics for "${trackName}"...`;
+
+    try {
+      const apiUrl = `https://api.lyrics.ovh/v1/${encodeURIComponent(artistName)}/${encodeURIComponent(trackName)}`;
+      const response = await fetch(apiUrl);
+
+      if (!response.ok) {
+        this.#overlayContent.textContent = `Sorry, lyrics for "${trackName}" could not be found.`;
+        return;
+      }
+
+      const data = await response.json();
+      // The API returns an empty string for some instrumentals.
+      const lyrics = data.lyrics?.trim();
+      this.#overlayContent.textContent = lyrics || `No lyrics found for "${trackName}". (The song might be instrumental).`;
+
+    } catch (error) {
+      console.error("Sonos-Subs: Error fetching lyrics:", error);
+      this.#overlayContent.textContent = 'Could not fetch lyrics. Please check your connection or the API status.';
     }
   }
 

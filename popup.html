@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sonos Subs Settings</title>
+    <style>
+      body {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        width: 240px;
+        padding: 16px;
+        background-color: #111;
+        color: #fff;
+      }
+      h3 {
+        margin: 0 0 20px 0;
+        font-weight: 800;
+        font-size: 16px;
+        text-align: center;
+        color: #eee;
+      }
+      .setting {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+      }
+      .setting label {
+        cursor: pointer;
+      }
+
+      /* Custom Toggle Switch Styling */
+      input[type='checkbox'] {
+        /* Hide the default checkbox */
+        appearance: none;
+        -webkit-appearance: none;
+        position: relative;
+        width: 40px;
+        height: 20px;
+        background: #555;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: background-color 0.2s ease-in-out;
+        flex-shrink: 0;
+      }
+
+      /* The switch handle */
+      input[type='checkbox']::before {
+        content: '';
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: #fff;
+        top: 3px;
+        left: 3px;
+        transition: transform 0.2s ease-in-out, background-color 0.2s ease-in-out;
+      }
+
+      input[type='checkbox']:checked {
+        background: #fff; /* White track for 'on' state */
+      }
+
+      input[type='checkbox']:checked::before {
+        transform: translateX(20px);
+        background: #000; /* Black handle for 'on' state */
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Sonos Subs Settings</h3>
+    <div class="setting">
+      <label for="notificationsToggle">Show Song Notifications</label>
+      <input type="checkbox" id="notificationsToggle" />
+    </div>
+    <script src="popup.js"></script>
+  </body>
+</html>

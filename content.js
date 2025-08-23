@@ -21,11 +21,14 @@ class SonosSubsUI {
   #overlayContent = null;
   #closeButton = null;
   #observer = null;
+  #boundHandleNowPlaying = null; // To hold the bound event handler
 
   constructor() {
     this.#injectScript('patch.js');
     this.#waitForDOM();
-    window.addEventListener('SonosNowPlaying', this.#handleNowPlaying.bind(this));
+    // Bind the handler once and store it so it can be removed later.
+    this.#boundHandleNowPlaying = this.#handleNowPlaying.bind(this);
+    window.addEventListener('SonosNowPlaying', this.#boundHandleNowPlaying);
   }
 
   /**
@@ -192,11 +195,25 @@ class SonosSubsUI {
    * @param {CustomEvent} event The event containing song details.
    */
   #handleNowPlaying(event) {
+    // If the extension context is invalidated (e.g., on reload), chrome.runtime will be undefined.
+    // This check prevents errors when trying to access chrome APIs in an orphaned script.
+    if (!chrome.runtime?.id) {
+      this.#cleanup();
+      return;
+    }
+
     const { trackName, artistName, imageUrl } = event.detail;
-
-    // Fetch lyrics and update the overlay
     this.#fetchAndDisplayLyrics(trackName, artistName);
+    this.#sendNotificationMessage(trackName, artistName, imageUrl);
+  }
 
+  /**
+   * Sends a message to the background script to display a notification.
+   * @param {string} trackName
+   * @param {string} artistName
+   * @param {string} imageUrl
+   */
+  #sendNotificationMessage(trackName, artistName, imageUrl) {
     try {
       // Send the song data to the background script.
       const promise = chrome.runtime.sendMessage({
@@ -250,7 +267,9 @@ class SonosSubsUI {
    * invalidated extension context.
    */
   #cleanup() {
-    window.removeEventListener('SonosNowPlaying', this.#handleNowPlaying.bind(this));
+    if (this.#boundHandleNowPlaying) {
+      window.removeEventListener('SonosNowPlaying', this.#boundHandleNowPlaying);
+    }
     this.#observer?.disconnect();
     console.log("Sonos-Subs: Cleaned up orphaned content script listeners.");
   }
@@ -258,4 +277,4 @@ class SonosSubsUI {
 
 // --- Main Execution ---
 // The class handles waiting for the DOM to be ready and injects the patch script.
-const sonosSubsUI = new SonosSubsUI();
+new SonosSubsUI();

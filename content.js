@@ -22,6 +22,7 @@ class SonosSubsUI {
   #closeButton = null;
   #observer = null;
   #boundHandleNowPlaying = null; // To hold the bound event handler
+  #currentTrack = { trackName: null, artistName: null, lyrics: null };
 
   constructor() {
     this.#injectScript('patch.js');
@@ -176,6 +177,19 @@ class SonosSubsUI {
 
     const isHidden = this.#overlay.style.display === 'none';
     if (isHidden) {
+      // If we have cached lyrics for the current track, display them immediately.
+      if (this.#currentTrack.lyrics) {
+        this.#overlayContent.textContent = this.#currentTrack.lyrics;
+      }
+      // Otherwise, if we have a track, fetch the lyrics.
+      else if (this.#currentTrack.trackName && this.#currentTrack.artistName) {
+        this.#fetchAndDisplayLyrics(this.#currentTrack.trackName, this.#currentTrack.artistName);
+      }
+      // If there's no track info at all.
+      else {
+        this.#overlayContent.textContent = 'Waiting for song...';
+      }
+
       this.#overlay.style.display = 'flex';
       // Use a timeout to allow the display property to apply before starting the transition
       setTimeout(() => {
@@ -203,7 +217,21 @@ class SonosSubsUI {
     }
 
     const { trackName, artistName, imageUrl } = event.detail;
-    this.#fetchAndDisplayLyrics(trackName, artistName);
+
+    // Don't do anything if the track hasn't changed. This can happen when
+    // pausing/playing the same song.
+    if (this.#currentTrack.trackName === trackName && this.#currentTrack.artistName === artistName) {
+      return;
+    }
+
+    // New song, so reset the track info and clear the cached lyrics.
+    this.#currentTrack = { trackName, artistName, lyrics: null };
+
+    // If the overlay is visible, refresh the lyrics for the new song.
+    if (this.#overlay?.style.display !== 'none') {
+      this.#fetchAndDisplayLyrics(trackName, artistName);
+    }
+
     this.#sendNotificationMessage(trackName, artistName, imageUrl);
   }
 
@@ -247,18 +275,24 @@ class SonosSubsUI {
       const response = await fetch(apiUrl);
 
       if (!response.ok) {
-        this.#overlayContent.textContent = `Sorry, lyrics for "${trackName}" could not be found.`;
+        const notFoundMessage = `Sorry, lyrics for "${trackName}" could not be found.`;
+        this.#currentTrack.lyrics = notFoundMessage; // Cache the "not found" state
+        this.#overlayContent.textContent = notFoundMessage;
         return;
       }
 
       const data = await response.json();
       // The API returns an empty string for some instrumentals.
       const lyrics = data.lyrics?.trim();
-      this.#overlayContent.textContent = lyrics || `No lyrics found for "${trackName}". (The song might be instrumental).`;
+      // Cache the lyrics or the instrumental message.
+      this.#currentTrack.lyrics = lyrics || `No lyrics found for "${trackName}". (The song might be instrumental).`;
+      this.#overlayContent.textContent = this.#currentTrack.lyrics;
 
     } catch (error) {
       console.error("Sonos-Subs: Error fetching lyrics:", error);
-      this.#overlayContent.textContent = 'Could not fetch lyrics. Please check your connection or the API status.';
+      const errorMessage = 'Could not fetch lyrics. Please check your connection or the API status.';
+      this.#currentTrack.lyrics = errorMessage; // Cache the error state
+      this.#overlayContent.textContent = errorMessage;
     }
   }
 
@@ -277,4 +311,4 @@ class SonosSubsUI {
 
 // --- Main Execution ---
 // The class handles waiting for the DOM to be ready and injects the patch script.
-new SonosSubsUI();
+const sonosSubsUI = new SonosSubsUI();

@@ -29,7 +29,7 @@ class SonosSubsUI {
     this.#waitForDOM();
     // Bind the handler once and store it so it can be removed later.
     this.#boundHandleNowPlaying = this.#handleNowPlaying.bind(this);
-    window.addEventListener('SonosNowPlaying', this.#boundHandleNowPlaying);
+    window.addEventListener('message', this.#boundHandleNowPlaying);
   }
 
   /**
@@ -205,7 +205,7 @@ class SonosSubsUI {
   }
 
   /**
-   * Handles the 'SonosNowPlaying' event from the injected script.
+   * Handles the 'SONOS_TRACK_INFO' event from the injected script.
    * @param {CustomEvent} event The event containing song details.
    */
   #handleNowPlaying(event) {
@@ -216,24 +216,35 @@ class SonosSubsUI {
       return;
     }
 
-    const { trackName, artistName, imageUrl } = event.detail;
-
-    // Don't do anything if the track hasn't changed. This can happen when
-    // pausing/playing the same song.
-    if (this.#currentTrack.trackName === trackName && this.#currentTrack.artistName === artistName) {
+    // We only accept messages from the page's own window
+    if (event.source !== window) {
       return;
     }
 
-    // New song, so reset the track info and clear the cached lyrics.
-    this.#currentTrack = { trackName, artistName, lyrics: null };
+    const { type, track } = event.data;
 
-    // If the overlay is visible, refresh the lyrics for the new song.
-    if (this.#overlay?.style.display !== 'none') {
-      this.#overlayContent.scrollTop = 0;
-      this.#fetchAndDisplayLyrics(trackName, artistName);
+    if (type === 'SONOS_TRACK_INFO') {
+      const trackName = track.title,
+        artistName = track.artist,
+        imageUrl = track.imageUrl;
+
+      // Don't do anything if the track hasn't changed. This can happen when
+      // pausing/playing the same song.
+      if (this.#currentTrack.trackName === trackName && this.#currentTrack.artistName === artistName) {
+        return;
+      }
+
+      // New song, so reset the track info and clear the cached lyrics.
+      this.#currentTrack = { trackName, artistName, lyrics: null };
+
+      // If the overlay is visible, refresh the lyrics for the new song.
+      if (this.#overlay?.style.display !== 'none') {
+        this.#overlayContent.scrollTop = 0;
+        this.#fetchAndDisplayLyrics(trackName, artistName);
+      }
+
+      this.#sendNotificationMessage(trackName, artistName, imageUrl);
     }
-
-    this.#sendNotificationMessage(trackName, artistName, imageUrl);
   }
 
   /**
@@ -245,11 +256,9 @@ class SonosSubsUI {
   #sendNotificationMessage(trackName, artistName, imageUrl) {
     try {
       // Send the song data to the background script.
-      const promise = chrome.runtime.sendMessage({
-        type: 'show_notification',
-        data: { trackName, artistName, imageUrl }
+      chrome.runtime.sendMessage({ type: 'SONOS_TRACK_INFO', data: { trackName, artistName, imageUrl } }, () => {
+        if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
       });
-      promise?.catch(() => { /* Ignore promise rejection */ });
     } catch (error) {
       // This error is expected if the extension was reloaded and this is an old,
       // orphaned content script. We clean up to prevent further errors.
@@ -303,7 +312,7 @@ class SonosSubsUI {
    */
   #cleanup() {
     if (this.#boundHandleNowPlaying) {
-      window.removeEventListener('SonosNowPlaying', this.#boundHandleNowPlaying);
+      window.removeEventListener('message', this.#boundHandleNowPlaying);
     }
     this.#observer?.disconnect();
     console.log("Sonos-Subs: Cleaned up orphaned content script listeners.");
@@ -313,3 +322,5 @@ class SonosSubsUI {
 // --- Main Execution ---
 // The class handles waiting for the DOM to be ready and injects the patch script.
 const sonosSubsUI = new SonosSubsUI();
+
+

@@ -4,7 +4,8 @@ const NOTIFICATION_ID = "sonos-now-playing-notification";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Listener for showing a desktop notification
-  if (message.type === 'show_notification') {
+
+  if (message.type === 'SONOS_TRACK_INFO') {
     // Defensive check: Ensure the storage API is available. This error typically
     // means the "storage" permission is missing from the manifest.json file.
     if (!chrome.storage) {
@@ -16,6 +17,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Check the user's preference from storage before showing the notification.
     chrome.storage.sync.get({ notificationsEnabled: true }, (items) => {
       if (items.notificationsEnabled) {
+
         const { trackName, artistName, imageUrl } = message.data;
 
         // First, clear the previous notification to ensure the new one re-appears.
@@ -23,7 +25,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // After clearing, create the new notification.
           chrome.notifications.create(NOTIFICATION_ID, {
             type: 'basic',
-            iconUrl: imageUrl ?? chrome.runtime.getURL('images/icon128.png'),
+            iconUrl: imageUrl ?? chrome.runtime.getURL('icons/icon128.png'),
             title: trackName,
             message: `by ${artistName}`,
             silent: true,
@@ -43,10 +45,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ status: "notifications_disabled" });
       }
     });
+    // Return true to indicate that the response will be sent asynchronously.
+    // This is crucial for keeping the message port open in Manifest V3.
+    return true;
   }
-  // Return true to indicate that the response will be sent asynchronously.
-  // This is crucial for keeping the message port open in Manifest V3.
-  return true;
 });
 
 // Add a listener for when the user clicks on the notification.

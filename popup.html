@@ -7,7 +7,6 @@
       body {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         width: 240px;
-        padding: 16px;
         background-color: #111;
         color: #fff;
       }
@@ -17,6 +16,48 @@
         font-size: 16px;
         text-align: center;
         color: #eee;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid #333;
+        margin: 12px 0;
+      }
+
+      .current-song {
+        margin-bottom: 20px;
+        padding: 12px;
+        background: #222;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .song-image {
+        width: 48px;
+        height: 48px;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .song-info {
+        font-size: 13px;
+        line-height: 1.4;
+        color: #ccc;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .song-title {
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 2px;
+      }
+      .song-artist {
+        color: #aaa;
+      }
+
+      #settings {
+        padding: 16px;
       }
       .setting {
         display: flex;
@@ -66,7 +107,6 @@
       }
 
       .credits {
-        margin-top: 24px;
         text-align: center;
         font-size: 11px;
         color: #888;
@@ -81,11 +121,18 @@
     </style>
   </head>
   <body>
-    <h3>Sonos Subs Settings</h3>
-    <div class="setting">
-      <label for="notificationsToggle">Show Song Notifications</label>
-      <input type="checkbox" id="notificationsToggle" />
+    <div id="currentSong" class="current-song">
+      <div class="song-info">No song playing</div>
     </div>
+    <hr />
+    <div id="settings">
+      <h3>Sonos Subs Settings</h3>
+      <div class="setting">
+        <label for="notificationsToggle">Show Song Notifications</label>
+        <input type="checkbox" id="notificationsToggle" />
+      </div>
+    </div>
+    <hr />
     <div class="credits">Lyrics by <a href="https://lyrics.ovh" target="_blank" rel="noopener noreferrer">lyrics.ovh</a></div>
     <script src="popup.js"></script>
   </body>

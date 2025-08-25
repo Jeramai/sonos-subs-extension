@@ -1,4 +1,34 @@
 // This background script handles extension tasks like showing notifications.
+
+/**
+ * Fetches an image from a URL and converts it to a Data URL.
+ * This is necessary to use local network images (http://) in notifications,
+ * which are otherwise blocked by security policies. If fetching fails,
+ * it returns a fallback icon URL.
+ * @param {string | null | undefined} imageUrl The URL of the image to fetch.
+ * @param {string} fallbackUrl The default icon to use if fetching fails.
+ * @returns {Promise<string>} A promise that resolves to a Data URL or the fallback URL.
+ */
+async function getImageDataUrl(imageUrl, fallbackUrl) {
+  if (!imageUrl) return fallbackUrl;
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject; // Pass reader errors to the promise
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn(`Sonos-Subs: Could not fetch image from ${imageUrl}. Using fallback. Error: ${error.message}`);
+    return fallbackUrl;
+  }
+}
+
+
 // A consistent ID for our notification to ensure we can update it.
 const NOTIFICATION_ID = "sonos-now-playing-notification";
 
@@ -20,13 +50,15 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       if (items.notificationsEnabled) {
         const { trackName, artistName, imageUrl } = message.data;
 
+        const finalImageUrl = await getImageDataUrl(imageUrl, chrome.runtime.getURL('icons/icon128.png'));
+
         // First, clear the previous notification to ensure the new one re-appears.
         await chrome.notifications.clear(NOTIFICATION_ID);
 
         // After clearing, create the new notification.
         const notificationId = await chrome.notifications.create(NOTIFICATION_ID, {
           type: 'basic',
-          iconUrl: imageUrl ?? chrome.runtime.getURL('icons/icon128.png'),
+          iconUrl: finalImageUrl,
           title: trackName,
           message: `by ${artistName}`,
           silent: true,
@@ -42,6 +74,10 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       console.error("Sonos-Subs: Notification creation failed:", error.message);
       return { status: "error", message: error.message };
     }
+  } else {
+    // It's good practice to indicate that this listener does not handle other
+    // message types, preventing potential "port closed" errors elsewhere.
+    return false;
   }
 });
 

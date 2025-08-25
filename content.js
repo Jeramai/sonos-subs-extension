@@ -243,6 +243,9 @@ class SonosSubsUI {
         this.#fetchAndDisplayLyrics(trackName, artistName);
       }
 
+      // Store current song in storage for popup access
+      chrome.storage.local.set({ currentSong: { trackName, artistName, imageUrl } });
+
       this.#sendNotificationMessage(trackName, artistName, imageUrl);
     }
   }
@@ -256,9 +259,7 @@ class SonosSubsUI {
   #sendNotificationMessage(trackName, artistName, imageUrl) {
     try {
       // Send the song data to the background script.
-      chrome.runtime.sendMessage({ type: 'SONOS_TRACK_INFO', data: { trackName, artistName, imageUrl } }, () => {
-        if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
-      });
+      chrome.runtime.sendMessage({ type: 'SONOS_TRACK_INFO', data: { trackName, artistName, imageUrl } }, () => { });
     } catch (error) {
       // This error is expected if the extension was reloaded and this is an old,
       // orphaned content script. We clean up to prevent further errors.

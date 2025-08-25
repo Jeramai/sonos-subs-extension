@@ -2,7 +2,7 @@
 // A consistent ID for our notification to ensure we can update it.
 const NOTIFICATION_ID = "sonos-now-playing-notification";
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (message, sender) => {
   // Listener for showing a desktop notification
 
   if (message.type === 'SONOS_TRACK_INFO') {
@@ -10,44 +10,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // means the "storage" permission is missing from the manifest.json file.
     if (!chrome.storage) {
       console.error("Sonos-Subs: Chrome Storage API is not available. Please ensure the 'storage' permission is in your manifest.json file.");
-      sendResponse({ status: "error", message: "Storage API unavailable." });
-      return true; // Keep the message channel open.
+      return { status: "error", message: "Storage API unavailable." };
     }
 
-    // Check the user's preference from storage before showing the notification.
-    chrome.storage.sync.get({ notificationsEnabled: true }, (items) => {
-      if (items.notificationsEnabled) {
+    try {
+      // Check the user's preference from storage before showing the notification.
+      const items = await chrome.storage.sync.get({ notificationsEnabled: true });
 
+      if (items.notificationsEnabled) {
         const { trackName, artistName, imageUrl } = message.data;
 
         // First, clear the previous notification to ensure the new one re-appears.
-        chrome.notifications.clear(NOTIFICATION_ID, () => {
-          // After clearing, create the new notification.
-          chrome.notifications.create(NOTIFICATION_ID, {
-            type: 'basic',
-            iconUrl: imageUrl ?? chrome.runtime.getURL('icons/icon128.png'),
-            title: trackName,
-            message: `by ${artistName}`,
-            silent: true,
-            priority: 1
-          }, (notificationId) => {
-            if (chrome.runtime.lastError) {
-              console.error("Sonos-Subs: Notification creation failed:", chrome.runtime.lastError.message);
-              sendResponse({ status: "error", message: chrome.runtime.lastError.message });
-            } else {
-              console.log(`Sonos-Subs: Notification created/updated successfully with ID: ${notificationId}`);
-              sendResponse({ status: "notification_sent" });
-            }
-          });
+        await chrome.notifications.clear(NOTIFICATION_ID);
+
+        // After clearing, create the new notification.
+        const notificationId = await chrome.notifications.create(NOTIFICATION_ID, {
+          type: 'basic',
+          iconUrl: imageUrl ?? chrome.runtime.getURL('icons/icon128.png'),
+          title: trackName,
+          message: `by ${artistName}`,
+          silent: true,
+          priority: 1
         });
+        console.log(`Sonos-Subs: Notification created/updated successfully with ID: ${notificationId}`);
+        return { status: "notification_sent" };
       } else {
         // Notifications are disabled, do nothing.
-        sendResponse({ status: "notifications_disabled" });
+        return { status: "notifications_disabled" };
       }
-    });
-    // Return true to indicate that the response will be sent asynchronously.
-    // This is crucial for keeping the message port open in Manifest V3.
-    return true;
+    } catch (error) {
+      console.error("Sonos-Subs: Notification creation failed:", error.message);
+      return { status: "error", message: error.message };
+    }
   }
 });
 

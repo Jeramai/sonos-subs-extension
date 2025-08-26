@@ -22,6 +22,9 @@ class SonosSubsUI {
   #closeButton = null;
   #observer = null;
   #boundHandleNowPlaying = null; // To hold the bound event handler
+  #boundHandleVolumeScroll = null;
+  #volumeScrollTimeout = null; // For debouncing volume changes
+  #headerButtonInitialized = false;
   #currentTrack = { trackName: null, artistName: null, lyrics: null };
 
   constructor() {
@@ -29,6 +32,7 @@ class SonosSubsUI {
     this.#waitForDOM();
     // Bind the handler once and store it so it can be removed later.
     this.#boundHandleNowPlaying = this.#handleNowPlaying.bind(this);
+    this.#boundHandleVolumeScroll = this.#handleVolumeScroll.bind(this);
     window.addEventListener('message', this.#boundHandleNowPlaying);
     this.#setupCommandListener();
   }
@@ -59,29 +63,46 @@ class SonosSubsUI {
 
   /**
    * Creates and injects the UI elements into the page.
-   * This is the callback for the MutationObserver.
+   * This is the callback for the MutationObserver. It will be called multiple
+   * times and will incrementally add UI components as their DOM dependencies become
+   * available. The observer is disconnected once all components are initialized.
    */
   #initializeUI() {
-    // Avoid re-creating elements if they already exist
-    if (document.getElementById(SonosSubsUI.#HEADER_BUTTON_ID)) {
-      this.#observer?.disconnect();
-      return;
+    // --- Initialize Header Button & Overlay ---
+    // This part only runs once.
+    if (!this.#headerButtonInitialized) {
+      // Check if the button is already there to avoid re-adding it on hot-reloads.
+      if (!document.getElementById(SonosSubsUI.#HEADER_BUTTON_ID)) {
+        const headerParent = document.querySelector('header > div:last-of-type');
+        if (headerParent) {
+          // Create the overlay only once, when we're about to add the button.
+          if (!this.#overlay) {
+            this.#createOverlay();
+          }
+          this.#createHeaderButton(headerParent);
+          this.#addEventListeners(); // Adds listeners to overlay and header button
+          this.#headerButtonInitialized = true;
+        }
+      } else {
+        // Button already exists, maybe from a previous script instance.
+        this.#headerButtonInitialized = true;
+      }
     }
 
-    // Find the parent for the header button
-    const headerParent = document.querySelector('header > div:last-of-type');
-    if (!headerParent) {
-      // Element not ready yet, observer will try again.
-      return;
-    }
+    // --- Initialize Volume Scroll Listeners (continuously) ---
+    // This runs on each mutation to find any new volume sliders that have appeared.
+    // We use querySelectorAll to find every instance.
+    const volumeSliderHandles = document.querySelectorAll('[aria-label="Volume"]');
+    volumeSliderHandles.forEach(handle => {
+      const container = handle.parentElement?.parentElement;
 
-    this.#createOverlay();
-    this.#createHeaderButton(headerParent);
-    this.#addEventListeners();
-
-    // UI is successfully initialized, we can stop observing.
-    this.#observer.disconnect();
-    this.#observer = null; // Clean up reference
+      // Use a data attribute to mark elements that already have the listener,
+      // preventing us from adding it multiple times.
+      if (container && !container.dataset.sonosSubsVolumeListener) {
+        container.addEventListener('wheel', this.#boundHandleVolumeScroll, { passive: false });
+        container.dataset.sonosSubsVolumeListener = 'true';
+      }
+    });
   }
 
   /** Creates the lyrics overlay and appends it to the body. */
@@ -202,6 +223,74 @@ class SonosSubsUI {
       this.#overlay.addEventListener('transitionend', () => {
         this.#overlay.style.display = 'none';
       }, { once: true });
+    }
+  }
+
+  /**
+   * Handles mouse wheel events on the volume slider to adjust volume.
+   * @param {WheelEvent} event The wheel event.
+   */
+  async #handleVolumeScroll(event) {
+    event.preventDefault(); // Prevent the page from scrolling
+
+    // Find the handle element for immediate UI feedback. The event's currentTarget
+    // is the container we attached the listener to.
+    const container = event.currentTarget;
+    const handleElement = container.querySelector('[aria-label="Volume"]')?.parentElement;
+    const lineElement = handleElement?.parentElement?.firstChild?.firstChild;
+    const volumeElement = handleElement?.parentElement?.parentElement?.lastChild;
+
+    // Use the most up-to-date volume from the UI if available, otherwise fetch from storage.
+    // This ensures rapid scroll events build on each other correctly.
+    let currentVolume;
+    if (volumeElement && !isNaN(parseInt(volumeElement.textContent, 10))) {
+      currentVolume = parseInt(volumeElement.textContent, 10);
+    } else {
+      const data = await chrome.storage.local.get({ playSettings: { volume: 50 } });
+      currentVolume = data.playSettings.volume;
+    }
+
+    const scrollStep = 1;
+    // deltaY is negative for scroll up (increase volume), positive for scroll down (decrease)
+    const newVolume = event.deltaY < 0
+      ? Math.min(100, currentVolume + scrollStep)
+      : Math.max(1, currentVolume - scrollStep);
+
+    if (newVolume !== currentVolume) {
+      // --- Immediate UI Feedback ---
+      if (handleElement) {
+        const pixelOffset = Math.abs(newVolume - 50) * 0.12;
+        handleElement.style.left = `calc(${newVolume}% + ${pixelOffset}px)`;
+      }
+
+      if (lineElement) {
+        lineElement.style.right = `${100 - newVolume}%`;
+      }
+
+      if (volumeElement) {
+        volumeElement.textContent = newVolume;
+      }
+
+      // --- Debounced Update Logic ---
+      // Clear any pending timeout to reset the debounce timer.
+      if (this.#volumeScrollTimeout) {
+        clearTimeout(this.#volumeScrollTimeout);
+      }
+
+      // Set a new timeout. The actual update will only run after the user stops scrolling.
+      this.#volumeScrollTimeout = setTimeout(async () => {
+        // Get latest settings from storage to avoid overwriting other properties (like 'muted').
+        const data = await chrome.storage.local.get({ playSettings: {} });
+        const newPlaySettings = { ...data.playSettings, volume: newVolume };
+        await chrome.storage.local.set({ playSettings: newPlaySettings });
+
+        // Send the command to the injected script to change the actual Sonos volume.
+        window.postMessage({
+          type: 'SONOS_COMMAND',
+          command: 'setVolume',
+          props: { volume: newVolume }
+        }, window.location.origin);
+      }, 500); // 500ms delay after the last scroll event.
     }
   }
 

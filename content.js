@@ -30,6 +30,7 @@ class SonosSubsUI {
     // Bind the handler once and store it so it can be removed later.
     this.#boundHandleNowPlaying = this.#handleNowPlaying.bind(this);
     window.addEventListener('message', this.#boundHandleNowPlaying);
+    this.#setupCommandListener();
   }
 
   /**
@@ -221,12 +222,16 @@ class SonosSubsUI {
       return;
     }
 
-    const { type, track } = event.data;
+    const { type, track, isPlaying } = event.data;
 
     if (type === 'SONOS_TRACK_INFO') {
       const trackName = track.title,
         artistName = track.artist,
         imageUrl = track.imageUrl;
+
+
+      // Store current song in storage for popup access
+      chrome.storage.local.set({ playSettings: { isPlaying } });
 
       // Don't do anything if the track hasn't changed. This can happen when
       // pausing/playing the same song.
@@ -305,6 +310,19 @@ class SonosSubsUI {
       this.#currentTrack.lyrics = errorMessage; // Cache the error state
       this.#overlayContent.textContent = errorMessage;
     }
+  }
+
+  /**
+   * Sets up listener for commands from the background script
+   */
+  #setupCommandListener() {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.action === 'sendSonosCommand') {
+        window.postMessage({ type: 'SONOS_COMMAND', command: message.command }, window.location.origin);
+        sendResponse({ success: true });
+      }
+      return true;
+    });
   }
 
   /**

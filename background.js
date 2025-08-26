@@ -28,6 +28,23 @@ async function getImageDataUrl(imageUrl, fallbackUrl) {
   }
 }
 
+/**
+ * Fetches the latest state from storage and broadcasts it to other parts of
+ * the extension, like the popup, so the UI can be updated live.
+ */
+async function broadcastStateUpdate() {
+  try {
+    // Fetch the latest state that the content script has saved.
+    const latestState = await chrome.storage.local.get(['currentSong', 'playSettings']);
+    // If there's any state to broadcast, send it.
+    if (latestState.currentSong || latestState.playSettings) {
+      chrome.runtime.sendMessage({ type: 'SONG_UPDATED', data: latestState });
+      console.log('Sonos-Subs: Broadcasted state update to popup.');
+    }
+  } catch (error) {
+    console.error('Sonos-Subs: Failed to broadcast state update.', error);
+  }
+}
 
 // A consistent ID for our notification to ensure we can update it.
 const NOTIFICATION_ID = "sonos-now-playing-notification";
@@ -36,6 +53,10 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
   // Listener for showing a desktop notification
 
   if (message.type === 'SONOS_TRACK_INFO') {
+    // This message indicates a state change. The first thing we do is
+    // broadcast this change to any open UI, like the popup.
+    broadcastStateUpdate();
+
     // Defensive check: Ensure the storage API is available. This error typically
     // means the "storage" permission is missing from the manifest.json file.
     if (!chrome.storage) {
@@ -74,7 +95,46 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       console.error("Sonos-Subs: Notification creation failed:", error.message);
       return { status: "error", message: error.message };
     }
-  } else {
+  } else if (
+    ['SONOS_TOGGLE_PLAY_PAUSE', 'SONOS_PREV_SONG', 'SONOS_NEXT_SONG'].includes(message.type)
+  ) {
+    try {
+      // Get the current playback state from storage to decide which command to send
+      const { playSettings } = await chrome.storage.local.get('playSettings');
+
+      // Determine the current state, defaulting to false (paused) if not set
+      const isPlaying = playSettings?.isPlaying || false;
+      // Choose the command to send based on the current state
+      let command = isPlaying ? 'pause' : 'play';
+      if (message.type === 'SONOS_PREV_SONG') command = 'skipBack'
+      if (message.type === 'SONOS_NEXT_SONG') command = 'skipToNextTrack'
+
+      // Find the Sonos tab to send the command to the content script
+      const [sonosTab] = await chrome.tabs.query({ url: "https://play.sonos.com/*" });
+
+      if (sonosTab) {
+        // Forward the command to the content script (patch.js) which has the WebSocket
+        try {
+          await chrome.tabs.sendMessage(sonosTab.id, { action: 'sendSonosCommand', command });
+          // NOTE: We don't broadcast a state update here directly.
+          // The popup UI has already been updated optimistically. The actual,
+          // authoritative state change will be detected by the content script
+          // after the command is processed by Sonos, which will then send a
+          // 'SONOS_TRACK_INFO' message back to this background script.
+          // That message triggers the `broadcastStateUpdate()` call, ensuring
+          // the UI is eventually consistent with the true system state.
+          console.log(`Sonos-Subs: Relayed '${command}' command to content script.`);
+        } catch (error) {
+          console.warn('Sonos-Subs: Failed to send command to content script:', error.message);
+        }
+      } else {
+        console.warn('Sonos-Subs: Could not find an active Sonos tab to send command.');
+      }
+    } catch (error) {
+      console.error('Sonos-Subs: Error relaying play/pause command:', error);
+    }
+  }
+  else {
     // It's good practice to indicate that this listener does not handle other
     // message types, preventing potential "port closed" errors elsewhere.
     return false;

@@ -3,126 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <title>Sonos Subs Settings</title>
-    <style>
-      body {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        width: 240px;
-        background-color: #111;
-        color: #fff;
-      }
-      h3 {
-        margin: 0 0 20px 0;
-        font-weight: 800;
-        font-size: 16px;
-        text-align: center;
-        color: #eee;
-      }
-      hr {
-        border: none;
-        border-top: 1px solid #333;
-        margin: 12px 0;
-      }
-
-      .current-song {
-        margin-bottom: 20px;
-        padding: 12px;
-        background: #222;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .song-image {
-        width: 48px;
-        height: 48px;
-        border-radius: 4px;
-        flex-shrink: 0;
-      }
-      .song-info {
-        font-size: 13px;
-        line-height: 1.4;
-        color: #ccc;
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .song-title {
-        font-weight: 600;
-        color: #fff;
-        margin-bottom: 2px;
-      }
-      .song-artist {
-        color: #aaa;
-      }
-
-      #settings {
-        padding: 16px;
-      }
-      .setting {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        font-size: 14px;
-      }
-      .setting label {
-        cursor: pointer;
-      }
-
-      /* Custom Toggle Switch Styling */
-      input[type='checkbox'] {
-        /* Hide the default checkbox */
-        appearance: none;
-        -webkit-appearance: none;
-        position: relative;
-        width: 40px;
-        height: 20px;
-        background: #555;
-        border-radius: 20px;
-        cursor: pointer;
-        transition: background-color 0.2s ease-in-out;
-        flex-shrink: 0;
-      }
-
-      /* The switch handle */
-      input[type='checkbox']::before {
-        content: '';
-        position: absolute;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: #fff;
-        top: 3px;
-        left: 3px;
-        transition: transform 0.2s ease-in-out, background-color 0.2s ease-in-out;
-      }
-
-      input[type='checkbox']:checked {
-        background: #fff; /* White track for 'on' state */
-      }
-
-      input[type='checkbox']:checked::before {
-        transform: translateX(20px);
-        background: #000; /* Black handle for 'on' state */
-      }
-
-      .credits {
-        text-align: center;
-        font-size: 11px;
-        color: #888;
-      }
-      .credits a {
-        color: #aaa;
-        text-decoration: none;
-      }
-      .credits a:hover {
-        text-decoration: underline;
-      }
-    </style>
+    <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <div id="currentSong" class="current-song">
       <div class="song-info">No song playing</div>
+      <div class="playback-controls">
+        <div class="song-prev">X</div>
+        <div class="song-play-pause">X</div>
+        <div class="song-next">X</div>
+      </div>
     </div>
     <hr />
     <div id="settings">

@@ -21,7 +21,7 @@ hr {
   flex-direction: column;
 }
 .current-song {
-  margin-bottom: 20px;
+  margin-bottom: 6px;
   padding: 12px;
   background: #222;
   border-radius: 8px;
@@ -155,8 +155,11 @@ input[type='checkbox']:checked::before {
 .volume-control {
   display: flex;
   align-items: center;
-  width: 100%;
   gap: 12px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  background: #222;
+  border-radius: 8px;
 }
 
 /* --- Custom Slider Styles --- */

@@ -41,6 +41,25 @@ document.addEventListener('DOMContentLoaded', () => {
       const newPlaySettings = { ...data.playSettings, volume };
       chrome.storage.local.set({ playSettings: newPlaySettings });
     });
+
+    volumeSlider.addEventListener('wheel', async (event) => {
+      // Prevent the popup from scrolling
+      event.preventDefault();
+
+      // Calculate new volume
+      const currentVolume = parseInt(volumeSlider.value, 10);
+      const step = 1; // Adjust volume by 5 on each scroll tick
+      const newVolume = event.deltaY < 0
+        ? Math.min(100, currentVolume + step)
+        : Math.max(0, currentVolume - step);
+
+      // If volume changed, update the slider and trigger the input event
+      // to apply the change and notify the background script.
+      if (newVolume !== currentVolume) {
+        volumeSlider.value = newVolume;
+        volumeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
   }
 
   const ICONS = {

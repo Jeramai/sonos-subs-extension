@@ -34,6 +34,14 @@ window.WebSocket = function (url, protocols) {
       else if (messageText?.[0]?.type === "devicesStatus" && messageText?.[1]?.devices?.[0]?.groupId) {
         groupId = messageText?.[1]?.devices?.[0]?.groupId
       }
+      // Get volume info
+      else if (messageText?.[0]?.type === "groupVolume") {
+        window.postMessage({
+          type: 'SONOS_VOLUME_INFO',
+          volume: messageText?.[1]?.volume,
+          muted: messageText?.[1]?.muted
+        }, window.location.origin);
+      }
     } catch (e) {
       console.warn('SONOS-SUBS: ', e)
     }
@@ -47,25 +55,25 @@ window.WebSocket.prototype = OriginalWebSocket.prototype;
 
 // Listen for commands from content script
 window.addEventListener('message', (event) => {
-  if (event.source !== window || event.data.type !== 'SONOS_COMMAND' || !groupId) return;
+  if (event.source !== window || event.origin !== window.location.origin || event.data.type !== 'SONOS_COMMAND' || !groupId) return;
 
   if (currentSocket) {
     const command = event.data.command
     console.log('SONOS-SUBS: Sending command:', command);
 
-    let props = {}
-    if (command === 'play' || command === 'pause') {
-      // When sending a play command, include this property to avoid TV playback issues
-      props = {
-        "allowTvPauseRestore": true,
-        "deviceFeedback": "NONE"
-      }
+    // namespace
+    let namespace = "playback"
+    if (command === 'setMute' || command === 'setVolume') {
+      namespace = "groupVolume"
     }
+
+    // Props
+    let props = event.data.props ?? {}
 
 
     const commandMessage = JSON.stringify([{
       "command": command,
-      "namespace": "playback",
+      "namespace": namespace,
       "groupId": groupId,
       "corrId": crypto.randomUUID()
     },
@@ -75,6 +83,4 @@ window.addEventListener('message', (event) => {
     );
     currentSocket.send(commandMessage);
   }
-});
-
-
+}); 

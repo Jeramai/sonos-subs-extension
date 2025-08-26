@@ -96,7 +96,7 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       return { status: "error", message: error.message };
     }
   } else if (
-    ['SONOS_TOGGLE_PLAY_PAUSE', 'SONOS_PREV_SONG', 'SONOS_NEXT_SONG'].includes(message.type)
+    ['SONOS_TOGGLE_PLAY_PAUSE', 'SONOS_PREV_SONG', 'SONOS_NEXT_SONG', 'SONOS_TOGGLE_MUTE', 'SONOS_SET_VOLUME'].includes(message.type)
   ) {
     try {
       // Get the current playback state from storage to decide which command to send
@@ -108,6 +108,8 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
       let command = isPlaying ? 'pause' : 'play';
       if (message.type === 'SONOS_PREV_SONG') command = 'skipBack'
       if (message.type === 'SONOS_NEXT_SONG') command = 'skipToNextTrack'
+      if (message.type === 'SONOS_TOGGLE_MUTE') command = 'setMute'
+      if (message.type === 'SONOS_SET_VOLUME') command = 'setVolume'
 
       // Find the Sonos tab to send the command to the content script
       const [sonosTab] = await chrome.tabs.query({ url: "https://play.sonos.com/*" });
@@ -116,13 +118,6 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
         // Forward the command to the content script (patch.js) which has the WebSocket
         try {
           await chrome.tabs.sendMessage(sonosTab.id, { action: 'sendSonosCommand', command });
-          // NOTE: We don't broadcast a state update here directly.
-          // The popup UI has already been updated optimistically. The actual,
-          // authoritative state change will be detected by the content script
-          // after the command is processed by Sonos, which will then send a
-          // 'SONOS_TRACK_INFO' message back to this background script.
-          // That message triggers the `broadcastStateUpdate()` call, ensuring
-          // the UI is eventually consistent with the true system state.
           console.log(`Sonos-Subs: Relayed '${command}' command to content script.`);
         } catch (error) {
           console.warn('Sonos-Subs: Failed to send command to content script:', error.message);

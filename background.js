@@ -83,7 +83,11 @@ chrome.runtime.onMessage.addListener(async (message, sender) => {
           title: trackName,
           message: `by ${artistName}`,
           silent: true,
-          priority: 1
+          priority: 1,
+          buttons: [
+            { title: 'Previous', },
+            { title: 'Next', },
+          ]
         });
         console.log(`Sonos-Subs: Notification created/updated successfully with ID: ${notificationId}`);
         return { status: "notification_sent" };
@@ -146,6 +150,25 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
       // Focus the window and the tab.
       await chrome.windows.update(sonosTab.windowId, { focused: true });
       await chrome.tabs.update(sonosTab.id, { active: true });
+    }
+  }
+});
+chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+  if (notificationId === NOTIFICATION_ID) {
+    const command = buttonIndex === 0 ? 'skipBack' : 'skipToNextTrack';
+
+    // Find the Sonos tab to send the command to the content script
+    const [sonosTab] = await chrome.tabs.query({ url: "https://play.sonos.com/*" });
+
+    if (sonosTab) {
+      try {
+        await chrome.tabs.sendMessage(sonosTab.id, { action: 'sendSonosCommand', command });
+        console.log(`Sonos-Subs: Sent '${command}' command from notification button.`);
+      } catch (error) {
+        console.warn('Sonos-Subs: Failed to send command from notification:', error.message);
+      }
+    } else {
+      console.warn('Sonos-Subs: Could not find an active Sonos tab for notification command.');
     }
   }
 });

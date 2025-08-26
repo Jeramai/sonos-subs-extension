@@ -422,9 +422,9 @@ class SonosSubsUI {
           let { command } = message;
 
           // Extra properties
-          let props = {
-            "allowTvPauseRestore": true,
-            "deviceFeedback": "NONE"
+          let props = {}
+          if (command === 'play' || command === 'pause') {
+            props = { "allowTvPauseRestore": true, "deviceFeedback": "NONE" }
           }
           if (command === 'setMute') {
             const { playSettings } = await chrome.storage.local.get('playSettings');

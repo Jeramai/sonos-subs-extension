@@ -28,6 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.sync.set({ notificationsEnabled: notificationsToggle.checked });
   });
 
+  // Handle support link click
+  const supportLink = document.getElementById('supportLink');
+  if (supportLink) {
+    supportLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: 'https://www.paypal.com/donate/?hosted_button_id=B9ZKW9Y6GDP86' });
+    });
+  }
+
   // Send volume changes to the background script.
   if (volumeSlider) {
     volumeSlider.addEventListener('input', async () => {

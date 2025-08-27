@@ -142,6 +142,19 @@ class SonosSubsUI {
       boxSizing: 'border-box',
     });
 
+    // Create attribution element
+    const attribution = document.createElement('div');
+    attribution.innerHTML = 'Lyrics by <a href="https://lyrics.ovh" target="_blank" rel="noopener noreferrer" style="color: #888; text-decoration: none;">lyrics.ovh</a>';
+    Object.assign(attribution.style, {
+      position: 'absolute',
+      bottom: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      fontSize: '14px',
+      color: '#888',
+      textAlign: 'center'
+    });
+
     this.#closeButton = document.createElement('button');
     this.#closeButton.id = SonosSubsUI.#OVERLAY_CLOSE_ID;
     this.#closeButton.innerHTML = SonosSubsUI.#CLOSE_OVERLAY_SVG;
@@ -158,7 +171,7 @@ class SonosSubsUI {
       lineHeight: '1',
     });
 
-    this.#overlay.append(this.#overlayContent, this.#closeButton);
+    this.#overlay.append(this.#overlayContent, this.#closeButton, attribution);
     document.body.appendChild(this.#overlay);
   }
 

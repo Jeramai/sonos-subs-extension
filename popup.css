@@ -119,6 +119,24 @@ input[type='checkbox']:checked::before {
 .credits a:hover {
   text-decoration: underline;
 }
+
+.support-link {
+  text-align: center;
+  margin-top: -6px;
+}
+.support-link a {
+  color: #888;
+  text-decoration: none;
+  font-size: 11px;
+  transition: color 0.2s ease;
+}
+.support-link a:hover {
+  color: #fff;
+  text-decoration: none;
+}
+.support-link a:hover span {
+  text-decoration: underline;
+}
 .truncate {
   white-space: nowrap;
   overflow: hidden;

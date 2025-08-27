@@ -50,53 +50,53 @@ async function sendSonosCommand(command) {
   }
 }
 
-chrome.runtime.onMessage.addListener(async (message) => {
+
+
+// In background script 
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SONOS_TRACK_INFO') {
-    broadcastStateUpdate();
+    (async () => {
+      broadcastStateUpdate();
 
-    if (!chrome.storage) {
-      console.error("Sonos-Subs: Storage API unavailable");
-      return { status: "error", message: "Storage API unavailable" };
-    }
+      if (!chrome.storage) {
+        console.error("Sonos-Subs: Storage API unavailable");
+        return;
+      }
 
-    try {
-      const { notificationsEnabled = true } = await chrome.storage.sync.get('notificationsEnabled');
-      if (!notificationsEnabled) return { status: "notifications_disabled" };
+      try {
+        const { notificationsEnabled = true } = await chrome.storage.sync.get('notificationsEnabled');
+        if (!notificationsEnabled) return;
 
-      const { trackName, artistName, imageUrl } = message.data;
-      const iconUrl = await getImageDataUrl(imageUrl, chrome.runtime.getURL('icons/icon128.png'));
+        const { trackName, artistName, imageUrl } = message.data;
+        const iconUrl = await getImageDataUrl(imageUrl, chrome.runtime.getURL('icons/icon128.png'));
 
-      await chrome.notifications.clear(NOTIFICATION_ID);
-      await chrome.notifications.create(NOTIFICATION_ID, {
-        type: 'basic',
-        iconUrl,
-        title: trackName,
-        message: `by ${artistName}`,
-        silent: true,
-        priority: 1,
-        buttons: [{ title: 'Previous' }, { title: 'Next' }]
-      });
-
-      return { status: "notification_sent" };
-    } catch (error) {
-      console.error("Sonos-Subs: Notification failed:", error.message);
-      return { status: "error", message: error.message };
-    }
+        await chrome.notifications.clear(NOTIFICATION_ID);
+        await chrome.notifications.create(NOTIFICATION_ID, {
+          type: 'basic',
+          iconUrl,
+          title: trackName,
+          message: `by ${artistName}`,
+          silent: true,
+          priority: 1,
+          buttons: [{ title: 'Previous' }, { title: 'Next' }]
+        });
+      } catch (error) {
+        console.error("Sonos-Subs: Notification failed:", error.message);
+      }
+    })();
   }
-
-  if (COMMAND_MAP[message.type]) {
-    try {
-      const { playSettings } = await chrome.storage.local.get('playSettings');
-      const isPlaying = playSettings?.isPlaying || false;
-      const command = COMMAND_MAP[message.type](isPlaying);
-      await sendSonosCommand(command);
-    } catch (error) {
-      console.error('Sonos-Subs: Command error:', error);
-    }
-    return;
+  else if (COMMAND_MAP[message.type]) {
+    (async () => {
+      try {
+        const { playSettings } = await chrome.storage.local.get('playSettings');
+        const isPlaying = playSettings?.isPlaying || false;
+        const command = COMMAND_MAP[message.type](isPlaying);
+        await sendSonosCommand(command);
+      } catch (error) {
+        console.error('Sonos-Subs: Command error:', error);
+      }
+    })();
   }
-
-  return false;
 });
 chrome.notifications.onClicked.addListener(async (notificationId) => {
   if (notificationId !== NOTIFICATION_ID) return;

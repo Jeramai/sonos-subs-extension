@@ -18,6 +18,7 @@ window.WebSocket = function (url, protocols) {
       )) {
 
         const track = messageText?.[1]?.metadata?.currentItem?.track
+        const positionMillis = messageText?.[1]?.playback?.positionMillis ?? 0
         if (track && track.name && track.artist?.name) {
           const trackInfo = {
             artist: track.artist.name,
@@ -27,7 +28,7 @@ window.WebSocket = function (url, protocols) {
           };
 
           const isPlaying = messageText?.[1]?.playback?.playbackState === "PLAYBACK_STATE_PLAYING"
-          window.postMessage({ type: 'SONOS_TRACK_INFO', track: trackInfo, isPlaying }, window.location.origin);
+          window.postMessage({ type: 'SONOS_TRACK_INFO', track: trackInfo, isPlaying, positionMillis }, window.location.origin);
         }
       }
       // Check for the groupId

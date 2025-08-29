@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sonos Subs",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Enhances the Sonos Web App by displaying song lyrics and more helpful features.",
   "author": "Jeram.ai",
   "icons": {

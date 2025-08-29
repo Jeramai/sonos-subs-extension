@@ -15,6 +15,7 @@ class SonosSubsUI {
 </svg>`;
   static #CLOSE_OVERLAY_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 
+
   // --- Private instance fields ---
   #headerButton = null;
   #overlay = null;
@@ -26,6 +27,13 @@ class SonosSubsUI {
   #volumeScrollTimeout = null; // For debouncing volume changes
   #headerButtonInitialized = false;
   #currentTrack = { trackName: null, artistName: null, lyrics: null };
+  #lyricsLines = [];
+  #currentLineIndex = -1;
+  #syncInterval = null;
+  #currentPositionMs = 0;
+  #lastPositionUpdate = 0;
+  #isPlaying = false;
+  #syncOffset = 1000; // ms
 
   constructor() {
     this.#injectScript('patch.js');
@@ -134,7 +142,9 @@ class SonosSubsUI {
     Object.assign(this.#overlayContent.style, {
       whiteSpace: 'pre-wrap',
       overflowY: 'auto',
+      overflowX: 'hidden',
       maxHeight: '80vh',
+      width: '100%',
       textAlign: 'center',
       lineHeight: '1.5',
       fontSize: '22px',
@@ -144,7 +154,7 @@ class SonosSubsUI {
 
     // Create attribution element
     const attribution = document.createElement('div');
-    attribution.innerHTML = 'Lyrics by <a href="https://lyrics.ovh" target="_blank" rel="noopener noreferrer" style="color: #888; text-decoration: none;">lyrics.ovh</a>';
+    attribution.innerHTML = 'Lyrics by <a href="https://lrclib.net/" target="_blank" rel="noopener noreferrer" style="color: #888; text-decoration: none;">lrclib.net</a>';
     Object.assign(attribution.style, {
       position: 'absolute',
       bottom: '20px',
@@ -212,8 +222,13 @@ class SonosSubsUI {
 
     const isHidden = this.#overlay.style.display === 'none';
     if (isHidden) {
+      // If we have synced lyrics, display karaoke mode
+      if (this.#lyricsLines.length > 0) {
+        this.#displayKaraokeLyrics();
+        this.#startLyricsSync();
+      }
       // If we have cached lyrics for the current track, display them immediately.
-      if (this.#currentTrack.lyrics) {
+      else if (this.#currentTrack.lyrics) {
         this.#overlayContent.textContent = this.#currentTrack.lyrics;
       }
       // Otherwise, if we have a track, fetch the lyrics.
@@ -232,6 +247,7 @@ class SonosSubsUI {
       }, 10);
     } else {
       this.#overlay.style.opacity = '0';
+      if (this.#syncInterval) clearInterval(this.#syncInterval);
       // Wait for the transition to finish before hiding the element
       this.#overlay.addEventListener('transitionend', () => {
         this.#overlay.style.display = 'none';
@@ -327,25 +343,34 @@ class SonosSubsUI {
     const { type } = event.data;
 
     if (type === 'SONOS_TRACK_INFO') {
-      const { track, isPlaying } = event.data;
+      const { track, isPlaying, positionMillis } = event.data;
       const trackName = track.title,
         artistName = track.artist,
         imageUrl = track.imageUrl;
-
 
       // Get existing settings, update, and set back to avoid overwriting.
       const data = await chrome.storage.local.get({ playSettings: {} });
       const newPlaySettings = { ...data.playSettings, isPlaying };
       await chrome.storage.local.set({ playSettings: newPlaySettings });
 
-      // Don't do anything if the track hasn't changed. This can happen when
-      // pausing/playing the same song.
+      // Update current position and playing state for lyrics sync
+      if (positionMillis !== undefined) {
+        this.#currentPositionMs = positionMillis;
+        this.#lastPositionUpdate = Date.now();
+      }
+      this.#isPlaying = isPlaying;
+
+      // Don't do anything else if the track hasn't changed. This can happen when
+      // pausing/playing the same song, but we still want position updates.
       if (this.#currentTrack.trackName === trackName && this.#currentTrack.artistName === artistName) {
         return;
       }
 
       // New song, so reset the track info and clear the cached lyrics.
       this.#currentTrack = { trackName, artistName, lyrics: null };
+      this.#currentLineIndex = -1;
+      this.#lyricsLines = [];
+      if (this.#syncInterval) clearInterval(this.#syncInterval);
 
       // If the overlay is visible, refresh the lyrics for the new song.
       if (this.#overlay?.style.display !== 'none') {
@@ -388,7 +413,7 @@ class SonosSubsUI {
   }
 
   /**
-   * Fetches lyrics from an API and displays them in the overlay.
+   * Fetches lyrics from the LRCLIB API and displays them in the overlay.
    * @param {string} trackName
    * @param {string} artistName
    */
@@ -398,27 +423,49 @@ class SonosSubsUI {
     this.#overlayContent.textContent = `Loading lyrics for "${trackName}"...`;
 
     try {
-      const apiUrl = `https://api.lyrics.ovh/v1/${encodeURIComponent(artistName)}/${encodeURIComponent(trackName)}`;
+      const apiUrl = `https://lrclib.net/api/search?artist_name=${encodeURIComponent(artistName)}&track_name=${encodeURIComponent(trackName)}`;
       const response = await fetch(apiUrl);
 
       if (!response.ok) {
         const notFoundMessage = `Sorry, lyrics for "${trackName}" could not be found.`;
-        this.#currentTrack.lyrics = notFoundMessage; // Cache the "not found" state
+        this.#currentTrack.lyrics = notFoundMessage;
         this.#overlayContent.textContent = notFoundMessage;
         return;
       }
 
       const data = await response.json();
-      // The API returns an empty string for some instrumentals.
-      const lyrics = data.lyrics?.trim();
-      // Cache the lyrics or the instrumental message.
-      this.#currentTrack.lyrics = lyrics || `No lyrics found for "${trackName}". (The song might be instrumental).`;
-      this.#overlayContent.textContent = this.#currentTrack.lyrics;
+      if (!data || data.length === 0) {
+        const notFoundMessage = `No lyrics found for "${trackName}". (The song might be instrumental).`;
+        this.#currentTrack.lyrics = notFoundMessage;
+        this.#overlayContent.textContent = notFoundMessage;
+        return;
+      }
+
+      // Use the first result and prefer synced lyrics if available
+      const track = data[0];
+      const syncedLyrics = track.syncedLyrics;
+      const plainLyrics = track.plainLyrics;
+
+      if (!syncedLyrics?.trim() && !plainLyrics?.trim()) {
+        const instrumentalMessage = `No lyrics found for "${trackName}". (The song might be instrumental).`;
+        this.#currentTrack.lyrics = instrumentalMessage;
+        this.#overlayContent.textContent = instrumentalMessage;
+        return;
+      }
+
+      if (syncedLyrics?.trim()) {
+        this.#parseSyncedLyrics(syncedLyrics);
+        this.#displayKaraokeLyrics();
+        this.#startLyricsSync();
+      } else {
+        this.#currentTrack.lyrics = plainLyrics.trim();
+        this.#overlayContent.textContent = this.#currentTrack.lyrics;
+      }
 
     } catch (error) {
       console.error("Sonos-Subs: Error fetching lyrics:", error);
       const errorMessage = 'Could not fetch lyrics. Please check your connection or the API status.';
-      this.#currentTrack.lyrics = errorMessage; // Cache the error state
+      this.#currentTrack.lyrics = errorMessage;
       this.#overlayContent.textContent = errorMessage;
     }
   }
@@ -459,12 +506,118 @@ class SonosSubsUI {
   }
 
   /**
+   * Parses synced lyrics with timestamps into an array of line objects.
+   * @param {string} syncedLyrics - LRC format lyrics with timestamps
+   */
+  #parseSyncedLyrics(syncedLyrics) {
+    this.#lyricsLines = [];
+    const lines = syncedLyrics.split('\n');
+
+    for (const line of lines) {
+      const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2})\](.*)/);
+      if (match) {
+        const [, minutes, seconds, centiseconds, text] = match;
+        const timeInMs = (parseInt(minutes) * 60 + parseInt(seconds)) * 1000 + parseInt(centiseconds) * 10;
+        this.#lyricsLines.push({ time: timeInMs, text: text.trim() });
+      }
+    }
+  }
+
+  /**
+   * Displays lyrics in karaoke format with individual line elements.
+   */
+  #displayKaraokeLyrics() {
+    this.#overlayContent.innerHTML = '';
+    this.#overlayContent.style.textAlign = 'center';
+
+    this.#lyricsLines.forEach((line, index) => {
+      const lineElement = document.createElement('div');
+      lineElement.textContent = line.text || '♪';
+      lineElement.style.cssText = `
+        margin: 8px 0;
+        transition: all 0.3s ease;
+        opacity: 0.4;
+        font-size: 22px;
+        line-height: 1.4;
+        transform-origin: center;
+      `;
+      lineElement.dataset.lineIndex = index;
+      this.#overlayContent.appendChild(lineElement);
+    });
+  }
+
+  /**
+   * Starts the lyrics synchronization based on song position.
+   */
+  #startLyricsSync() {
+    if (this.#syncInterval) clearInterval(this.#syncInterval);
+
+    this.#syncInterval = setInterval(() => {
+      this.#updateCurrentLine();
+    }, 100);
+  }
+
+  /**
+   * Updates the highlighted line based on current playback position.
+   */
+  #updateCurrentLine() {
+    // Calculate current position based on last known position + elapsed time
+    let currentTime = this.#currentPositionMs;
+    if (this.#isPlaying && this.#lastPositionUpdate > 0) {
+      const elapsed = Date.now() - this.#lastPositionUpdate;
+      currentTime += elapsed;
+    }
+
+    // Add a small syncOffset
+    currentTime += this.#syncOffset;
+
+    let newLineIndex = -1;
+    for (let i = 0; i < this.#lyricsLines.length; i++) {
+      if (this.#lyricsLines[i].time <= currentTime) {
+        newLineIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    if (newLineIndex !== this.#currentLineIndex) {
+      // Remove highlight from previous line
+      if (this.#currentLineIndex >= 0) {
+        const prevLine = this.#overlayContent.querySelector(`[data-line-index="${this.#currentLineIndex}"]`);
+        if (prevLine) {
+          prevLine.style.opacity = '0.4';
+          prevLine.style.transform = 'scale(1)';
+          prevLine.style.color = '#e1e1e1';
+          prevLine.style.fontWeight = 'normal';
+        }
+      }
+
+      // Highlight current line
+      if (newLineIndex >= 0) {
+        const currentLine = this.#overlayContent.querySelector(`[data-line-index="${newLineIndex}"]`);
+        if (currentLine) {
+          currentLine.style.opacity = '1';
+          currentLine.style.transform = 'scale(1.05)';
+          currentLine.style.color = '#fff';
+          currentLine.style.fontWeight = 'bold';
+          currentLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+
+      this.#currentLineIndex = newLineIndex;
+    }
+  }
+
+  /**
    * Cleans up listeners and observers to prevent errors in an
    * invalidated extension context.
    */
   #cleanup() {
     if (this.#boundHandleNowPlaying) {
       window.removeEventListener('message', this.#boundHandleNowPlaying);
+    }
+    if (this.#syncInterval) {
+      clearInterval(this.#syncInterval);
     }
     this.#observer?.disconnect();
     console.log("Sonos-Subs: Cleaned up orphaned content script listeners.");

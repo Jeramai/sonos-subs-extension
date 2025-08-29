@@ -554,6 +554,7 @@ class SonosSubsUI {
         this.#isSeeking = true;
         this.#currentPositionMs = line.time;
         this.#lastPositionUpdate = Date.now();
+        this.#highlightLine(index);
         chrome.runtime.sendMessage({
           type: 'SONOS_SEEK_SONG',
           positionMillis: line.time
@@ -573,6 +574,35 @@ class SonosSubsUI {
     this.#syncInterval = setInterval(() => {
       this.#updateCurrentLine();
     }, 100);
+  }
+
+  /**
+   * Highlights a specific line by index.
+   * @param {number} lineIndex - The index of the line to highlight
+   */
+  #highlightLine(lineIndex) {
+    // Remove highlight from previous line
+    if (this.#currentLineIndex >= 0) {
+      const prevLine = this.#overlayContent.querySelector(`[data-line-index="${this.#currentLineIndex}"]`);
+      if (prevLine) {
+        prevLine.style.opacity = '0.4';
+        prevLine.style.transform = 'scale(1)';
+        prevLine.style.color = '#e1e1e1';
+        prevLine.style.fontWeight = 'normal';
+      }
+    }
+
+    // Highlight new line
+    const newLine = this.#overlayContent.querySelector(`[data-line-index="${lineIndex}"]`);
+    if (newLine) {
+      newLine.style.opacity = '1';
+      newLine.style.transform = 'scale(1.05)';
+      newLine.style.color = '#fff';
+      newLine.style.fontWeight = 'bold';
+      newLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    this.#currentLineIndex = lineIndex;
   }
 
   /**
@@ -602,30 +632,7 @@ class SonosSubsUI {
     }
 
     if (newLineIndex !== this.#currentLineIndex) {
-      // Remove highlight from previous line
-      if (this.#currentLineIndex >= 0) {
-        const prevLine = this.#overlayContent.querySelector(`[data-line-index="${this.#currentLineIndex}"]`);
-        if (prevLine) {
-          prevLine.style.opacity = '0.4';
-          prevLine.style.transform = 'scale(1)';
-          prevLine.style.color = '#e1e1e1';
-          prevLine.style.fontWeight = 'normal';
-        }
-      }
-
-      // Highlight current line
-      if (newLineIndex >= 0) {
-        const currentLine = this.#overlayContent.querySelector(`[data-line-index="${newLineIndex}"]`);
-        if (currentLine) {
-          currentLine.style.opacity = '1';
-          currentLine.style.transform = 'scale(1.05)';
-          currentLine.style.color = '#fff';
-          currentLine.style.fontWeight = 'bold';
-          currentLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }
-
-      this.#currentLineIndex = newLineIndex;
+      this.#highlightLine(newLineIndex);
     }
   }
 

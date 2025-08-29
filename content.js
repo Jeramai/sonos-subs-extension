@@ -355,12 +355,12 @@ class SonosSubsUI {
       await chrome.storage.local.set({ playSettings: newPlaySettings });
 
       // Update current position and playing state for lyrics sync
-      if (positionMillis !== undefined && !this.#isSeeking) {
+      if (positionMillis !== undefined) {
         this.#currentPositionMs = positionMillis;
         this.#lastPositionUpdate = Date.now();
+        this.#isSeeking = false; // Reset seeking when we get actual position
       }
       this.#isPlaying = isPlaying;
-      if (isPlaying) this.#isSeeking = false;
 
       // Don't do anything else if the track hasn't changed. This can happen when
       // pausing/playing the same song, but we still want position updates.
@@ -552,8 +552,6 @@ class SonosSubsUI {
       // Add click listener to seek to this line's timestamp
       lineElement.addEventListener('click', () => {
         this.#isSeeking = true;
-        this.#currentPositionMs = line.time;
-        this.#lastPositionUpdate = Date.now();
         this.#highlightLine(index);
         chrome.runtime.sendMessage({
           type: 'SONOS_SEEK_SONG',
@@ -609,7 +607,7 @@ class SonosSubsUI {
    * Updates the highlighted line based on current playback position.
    */
   #updateCurrentLine() {
-    // Skip updates during seeking
+    // Skip sync updates during seeking
     if (this.#isSeeking) return;
 
     // Calculate current position based on last known position + elapsed time

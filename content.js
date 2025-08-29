@@ -34,6 +34,7 @@ class SonosSubsUI {
   #lastPositionUpdate = 0;
   #isPlaying = false;
   #syncOffset = 1000; // ms
+  #isSeeking = false;
 
   constructor() {
     this.#injectScript('patch.js');
@@ -354,11 +355,12 @@ class SonosSubsUI {
       await chrome.storage.local.set({ playSettings: newPlaySettings });
 
       // Update current position and playing state for lyrics sync
-      if (positionMillis !== undefined) {
+      if (positionMillis !== undefined && !this.#isSeeking) {
         this.#currentPositionMs = positionMillis;
         this.#lastPositionUpdate = Date.now();
       }
       this.#isPlaying = isPlaying;
+      if (isPlaying) this.#isSeeking = false;
 
       // Don't do anything else if the track hasn't changed. This can happen when
       // pausing/playing the same song, but we still want position updates.
@@ -494,6 +496,9 @@ class SonosSubsUI {
             const { playSettings } = await chrome.storage.local.get('playSettings');
             props = { volume: playSettings.volume }
           }
+          else if (command === 'seek') {
+            props = { "positionMillis": message.positionMillis || 0 }
+          }
 
           window.postMessage({ type: 'SONOS_COMMAND', command, props }, window.location.origin);
           sendResponse({ success: true });
@@ -540,8 +545,21 @@ class SonosSubsUI {
         font-size: 22px;
         line-height: 1.4;
         transform-origin: center;
+        cursor: pointer;
       `;
       lineElement.dataset.lineIndex = index;
+
+      // Add click listener to seek to this line's timestamp
+      lineElement.addEventListener('click', () => {
+        this.#isSeeking = true;
+        this.#currentPositionMs = line.time;
+        this.#lastPositionUpdate = Date.now();
+        chrome.runtime.sendMessage({
+          type: 'SONOS_SEEK_SONG',
+          positionMillis: line.time
+        });
+      });
+
       this.#overlayContent.appendChild(lineElement);
     });
   }
@@ -561,6 +579,9 @@ class SonosSubsUI {
    * Updates the highlighted line based on current playback position.
    */
   #updateCurrentLine() {
+    // Skip updates during seeking
+    if (this.#isSeeking) return;
+
     // Calculate current position based on last known position + elapsed time
     let currentTime = this.#currentPositionMs;
     if (this.#isPlaying && this.#lastPositionUpdate > 0) {

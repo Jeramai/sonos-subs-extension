@@ -71,7 +71,6 @@ window.addEventListener('message', (event) => {
     // Props
     let props = event.data.props ?? {}
 
-
     const commandMessage = JSON.stringify([{
       "command": command,
       "namespace": namespace,

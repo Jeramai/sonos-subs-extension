@@ -85,6 +85,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     })();
   }
+  else if (message.type === 'SONOS_SEEK_SONG') {
+    (async () => {
+      const [sonosTab] = await chrome.tabs.query({ url: SONOS_URL });
+      if (!sonosTab) {
+        console.warn('Sonos-Subs: No active Sonos tab found');
+        return;
+      }
+      try {
+        await chrome.tabs.sendMessage(sonosTab.id, {
+          action: 'sendSonosCommand',
+          command: 'seek',
+          positionMillis: message.positionMillis
+        });
+        console.log(`Sonos-Subs: Seeking to ${message.positionMillis}ms`);
+      } catch (error) {
+        console.warn('Sonos-Subs: Seek command failed:', error.message);
+      }
+    })();
+  }
   else if (COMMAND_MAP[message.type]) {
     (async () => {
       try {

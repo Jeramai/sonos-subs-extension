@@ -35,6 +35,7 @@ class SonosSubsUI {
   #isPlaying = false;
   #syncOffset = 1000; // ms
   #isSeeking = false;
+  #lyricsFontSize = 20; // Default font size in pt
 
   constructor() {
     this.#injectScript('patch.js');
@@ -44,6 +45,7 @@ class SonosSubsUI {
     this.#boundHandleVolumeScroll = this.#handleVolumeScroll.bind(this);
     window.addEventListener('message', this.#boundHandleNowPlaying);
     this.#setupCommandListener();
+    this.#loadFontSize();
   }
 
   /**
@@ -148,7 +150,7 @@ class SonosSubsUI {
       width: '100%',
       textAlign: 'center',
       lineHeight: '1.5',
-      fontSize: '22px',
+      fontSize: `${this.#lyricsFontSize}pt`,
       padding: '0 20px',
       boxSizing: 'border-box',
     });
@@ -502,12 +504,43 @@ class SonosSubsUI {
 
           window.postMessage({ type: 'SONOS_COMMAND', command, props }, window.location.origin);
           sendResponse({ success: true });
+        } else if (message.type === 'FONT_SIZE_CHANGED') {
+          this.#lyricsFontSize = message.fontSize;
+          this.#updateOverlayFontSize();
+          sendResponse({ success: true });
         }
       })();
 
       // Return true to indicate that sendResponse will be called asynchronously.
       return true;
     });
+  }
+
+  /**
+   * Loads the font size setting from storage.
+   */
+  async #loadFontSize() {
+    try {
+      const result = await chrome.storage.sync.get({ lyricsFontSize: 20 });
+      this.#lyricsFontSize = result.lyricsFontSize;
+    } catch (error) {
+      console.error('Sonos-Subs: Error loading font size:', error);
+    }
+  }
+
+  /**
+   * Updates the overlay font size.
+   */
+  #updateOverlayFontSize() {
+    if (this.#overlayContent) {
+      this.#overlayContent.style.fontSize = `${this.#lyricsFontSize}pt`;
+
+      // Update individual line elements if they exist (karaoke mode)
+      const lineElements = this.#overlayContent.querySelectorAll('[data-line-index]');
+      lineElements.forEach(line => {
+        line.style.fontSize = `${this.#lyricsFontSize}pt`;
+      });
+    }
   }
 
   /**
@@ -542,7 +575,7 @@ class SonosSubsUI {
         margin: 8px 0;
         transition: all 0.3s ease;
         opacity: 0.4;
-        font-size: 22px;
+        font-size: ${this.#lyricsFontSize}pt;
         line-height: 1.4;
         transform-origin: center;
         cursor: pointer;

@@ -3,6 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const volumeSlider = document.getElementById('volumeSlider');
   const muteButton = document.getElementById('muteButton');
   const volumeLevel = document.getElementById('volumeLevel');
+  const fontSizeSlider = document.getElementById('fontSizeSlider');
+  const fontSizeValue = document.getElementById('fontSizeValue');
 
   /**
    * Attaches a click listener to a button to send a command to the background script.
@@ -17,15 +19,48 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   };
 
-  // Load the saved setting and update the checkbox state.
-  // Default to `true` (enabled) if no setting is found.
-  chrome.storage.sync.get({ notificationsEnabled: true }, (items) => {
+  // Load the saved settings and update the UI state.
+  chrome.storage.sync.get({ notificationsEnabled: true, lyricsFontSize: 16 }, (items) => {
     notificationsToggle.checked = items.notificationsEnabled;
+    fontSizeSlider.value = items.lyricsFontSize;
+    fontSizeValue.textContent = items.lyricsFontSize + 'pt';
   });
 
-  // Save the setting whenever the toggle is changed.
+  // Save the notification setting whenever the toggle is changed.
   notificationsToggle.addEventListener('change', () => {
     chrome.storage.sync.set({ notificationsEnabled: notificationsToggle.checked });
+  });
+
+  // Handle font size changes
+  fontSizeSlider.addEventListener('input', () => {
+    const fontSize = parseInt(fontSizeSlider.value, 10);
+    fontSizeValue.textContent = fontSize + 'pt';
+    chrome.storage.sync.set({ lyricsFontSize: fontSize });
+
+    // Notify content script of font size change
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'FONT_SIZE_CHANGED',
+          fontSize: fontSize
+        });
+      }
+    });
+  });
+
+  // Add scroll-to-adjust for font size slider
+  fontSizeSlider.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const currentSize = parseInt(fontSizeSlider.value, 10);
+    const step = 1;
+    const newSize = event.deltaY < 0
+      ? Math.min(48, currentSize + step)
+      : Math.max(12, currentSize - step);
+
+    if (newSize !== currentSize) {
+      fontSizeSlider.value = newSize;
+      fontSizeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    }
   });
 
   // Handle support link click

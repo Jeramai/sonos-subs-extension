@@ -45,7 +45,13 @@ class SonosSubsUI {
     this.#boundHandleVolumeScroll = this.#handleVolumeScroll.bind(this);
     window.addEventListener('message', this.#boundHandleNowPlaying);
     this.#setupCommandListener();
-    this.#loadFontSize();
+  }
+
+  /**
+   * Initializes the UI by loading settings and starting operations.
+   */
+  async initialize() {
+    await this.#loadFontSize();
   }
 
   /**
@@ -686,3 +692,4 @@ class SonosSubsUI {
 // --- Main Execution ---
 // The class handles waiting for the DOM to be ready and injects the patch script.
 const sonosSubsUI = new SonosSubsUI();
+sonosSubsUI.initialize();

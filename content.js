@@ -383,7 +383,6 @@ class SonosSubsUI {
     }
 
     const { type } = event.data;
-
     if (type === 'SONOS_TRACK_INFO') {
       const { track, isPlaying, positionMillis } = event.data;
       const trackId = track.id,
@@ -415,6 +414,11 @@ class SonosSubsUI {
 
       this.#isPlaying = isPlaying;
 
+      // Update mediasession conterols
+      if (this.#mediaSessionEnabled) {
+        this.#updateMediaSession(trackName, artistName, durationMillis);
+      }
+
       // Don't do anything else if the track hasn't changed. This can happen when
       // pausing/playing the same song, but we still want position updates.
       if (this.#currentTrack.trackName === trackName && this.#currentTrack.artistName === artistName) {
@@ -442,9 +446,6 @@ class SonosSubsUI {
       if (imageUrl && !this.#notificationSent) {
         this.#sendNotificationMessage(trackName, artistName, imageUrl);
         this.#notificationSent = true;
-      }
-      if (this.#mediaSessionEnabled) {
-        this.#updateMediaSession(trackName, artistName, durationMillis);
       }
     } else if (type === "SONOS_VOLUME_INFO") {
       // Check if extension context is still valid
@@ -966,6 +967,14 @@ class SonosSubsUI {
     }
 
     navigator.mediaSession.playbackState = this.#isPlaying ? "playing" : "paused";
+    if (this.#isPlaying) {
+      await this.#audioTag?.play();
+      await this.#pipVideo?.play();
+    }
+    else {
+      this.#audioTag?.pause();
+      this.#pipVideo?.pause();
+    }
 
     if (document.pictureInPictureElement) {
       this.#showPictureInPictureWindow();

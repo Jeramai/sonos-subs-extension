@@ -815,16 +815,25 @@ class SonosSubsUI {
    * Shows the current track artwork in a Picture-in-Picture window.
    */
   async #showPictureInPictureWindow() {
-    const artworkSrc = [...navigator.mediaSession.metadata.artwork].pop().src;
-    const response = await fetch(artworkSrc);
-    const blob = await response.blob();
-    const image = await createImageBitmap(blob);
-
     if (!this.#pipCanvas || !this.#pipVideo) return;
 
-    this.#pipCanvas.getContext('2d').drawImage(image, 0, 0, 512, 512);
-    this.#pipVideo.srcObject = this.#pipCanvas.captureStream();
+    const ctx = this.#pipCanvas.getContext('2d');
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 512, 512);
 
+    try {
+      if (navigator.mediaSession.metadata?.artwork) {
+        const artworkSrc = [...navigator.mediaSession.metadata.artwork].pop().src;
+        const response = await fetch(artworkSrc);
+        const blob = await response.blob();
+        const image = await createImageBitmap(blob);
+        ctx.drawImage(image, 0, 0, 512, 512);
+      }
+    } catch (error) {
+      console.warn('Sonos-Subs: Failed to load artwork, using blank canvas', error);
+    }
+
+    this.#pipVideo.srcObject = this.#pipCanvas.captureStream();
     await this.#audioTag.play();
     await this.#pipVideo.play();
     await this.#pipVideo.requestPictureInPicture();
@@ -847,8 +856,7 @@ class SonosSubsUI {
     this.#audioTag.loop = true;
     this.#audioTag.autoplay = true;
 
-    await this.#audioTag.play();
-    if (!this.#isPlaying) await this.#audioTag.pause();
+    await this.#showPictureInPictureWindow()
 
     // Set audio listeners
     this.#audioTag.addEventListener('play', async () => {

@@ -407,7 +407,8 @@ class SonosSubsUI {
           const position = Math.min(positionMillis / 1000, duration);
           navigator.mediaSession.setPositionState({
             duration: duration,
-            position: position
+            position: position,
+            playbackRate: 1
           });
         }
       }
@@ -446,6 +447,11 @@ class SonosSubsUI {
       if (imageUrl && !this.#notificationSent) {
         this.#sendNotificationMessage(trackName, artistName, imageUrl);
         this.#notificationSent = true;
+      }
+
+      // Update mediasession conterols
+      if (this.#mediaSessionEnabled) {
+        this.#updateMediaSession(trackName, artistName, durationMillis);
       }
     } else if (type === "SONOS_VOLUME_INFO") {
       // Check if extension context is still valid
@@ -835,11 +841,15 @@ class SonosSubsUI {
     }
 
     this.#pipVideo.srcObject = this.#pipCanvas.captureStream();
-    await this.#audioTag.play();
-    await this.#pipVideo.play();
+
+    const evt = new CustomEvent("play", { detail: { silent: true } });
+    await this.#audioTag.dispatchEvent(evt);
+    await this.#pipVideo.play()
+
     await this.#pipVideo.requestPictureInPicture();
     if (!this.#isPlaying) {
-      this.#audioTag.pause();
+      const evt = new CustomEvent("pause", { detail: { silent: true } });
+      this.#audioTag.dispatchEvent(evt);
       this.#pipVideo.pause();
     }
   }
@@ -860,32 +870,36 @@ class SonosSubsUI {
     await this.#showPictureInPictureWindow()
 
     // Set audio listeners
-    this.#audioTag.addEventListener('play', async () => {
+    this.#audioTag.addEventListener('play', async (e) => {
       if (!chrome.runtime?.id) {
         this.#cleanup();
         return;
       }
       if (this.#mediaSessionEnabled) {
         navigator.mediaSession.playbackState = "playing"
-        window.postMessage({ type: 'SONOS_COMMAND', command: 'play', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
 
         const data = await chrome.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, isPlaying: true };
         await chrome.storage.local.set({ playSettings: newPlaySettings });
+
+        if (e.detail?.silent) return
+        window.postMessage({ type: 'SONOS_COMMAND', command: 'play', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
       }
     });
-    this.#audioTag.addEventListener('pause', async () => {
+    this.#audioTag.addEventListener('pause', async (e) => {
       if (!chrome.runtime?.id) {
         this.#cleanup();
         return;
       }
       if (this.#mediaSessionEnabled) {
-        window.postMessage({ type: 'SONOS_COMMAND', command: 'pause', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
         navigator.mediaSession.playbackState = "paused"
 
         const data = await chrome.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, isPlaying: false };
         await chrome.storage.local.set({ playSettings: newPlaySettings });
+
+        if (e.detail?.silent) return
+        window.postMessage({ type: 'SONOS_COMMAND', command: 'pause', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
       }
     });
 
@@ -899,17 +913,17 @@ class SonosSubsUI {
 
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       window.postMessage({ type: 'SONOS_COMMAND', command: 'skipBack', props: {} }, window.location.origin);
-      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0 });
+      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0, playbackRate: 1 });
     });
     navigator.mediaSession.setActionHandler('nexttrack', () => {
       window.postMessage({ type: 'SONOS_COMMAND', command: 'skipToNextTrack', props: {} }, window.location.origin);
-      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0 });
+      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0, playbackRate: 1 });
     });
 
     try {
       navigator.mediaSession.setActionHandler('seekto', (event) => {
         chrome.runtime.sendMessage({ type: 'SONOS_SEEK_SONG', positionMillis: event.seekTime * 1000 });
-        navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: event.seekTime });
+        navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: event.seekTime, playbackRate: 1 });
       });
     } catch (error) {
       console.warn('Warning! The "seekto" media session action is not supported.', error);
@@ -962,7 +976,8 @@ class SonosSubsUI {
       const position = Math.min(this.#currentPositionMs / 1000, duration);
       navigator.mediaSession.setPositionState({
         duration: duration,
-        position: position
+        position: position,
+        playbackRate: 1
       });
     }
 

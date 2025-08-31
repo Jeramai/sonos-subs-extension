@@ -36,22 +36,32 @@ class SonosSubsUI {
   #syncOffset = 1000; // ms
   #isSeeking = false;
   #lyricsFontSize = 20; // Default font size in pt
+  #audioTag = null;
+  #pipCanvas = null;
+  #pipVideo = null;
+  #notificationSent = false;
+  #mediaSessionEnabled = true;
 
   constructor() {
     this.#injectScript('patch.js');
     this.#waitForDOM();
     // Bind the handler once and store it so it can be removed later.
+    this.#setupCommandListener();
+
     this.#boundHandleNowPlaying = this.#handleNowPlaying.bind(this);
     this.#boundHandleVolumeScroll = this.#handleVolumeScroll.bind(this);
+
     window.addEventListener('message', this.#boundHandleNowPlaying);
-    this.#setupCommandListener();
   }
 
   /**
    * Initializes the UI by loading settings and starting operations.
    */
   async initialize() {
-    await this.#loadFontSize();
+    await this.#loadSettings();
+    if (this.#mediaSessionEnabled) {
+      await this.#setupMediaSession();
+    }
   }
 
   /**
@@ -98,6 +108,10 @@ class SonosSubsUI {
           }
           this.#createHeaderButton(headerParent);
           this.#addEventListeners(); // Adds listeners to overlay and header button
+
+          // Add Picture-in-Picture support
+          this.#createPiPElements()
+
           this.#headerButtonInitialized = true;
         }
       } else {
@@ -218,6 +232,20 @@ class SonosSubsUI {
     parent.append(this.#headerButton);
   }
 
+  /**
+   * Creates Picture-in-Picture canvas and video elements for media display.
+   */
+  #createPiPElements() {
+    if (!this.#pipCanvas && !this.#pipVideo) {
+      this.#pipCanvas = document.createElement('canvas');
+      this.#pipCanvas.width = this.#pipCanvas.height = 512;
+
+      this.#pipVideo = document.createElement('video');
+      this.#pipVideo.srcObject = this.#pipCanvas.captureStream();
+      this.#pipVideo.muted = true;
+    }
+  }
+
   /** Adds event listeners to the UI elements. */
   #addEventListeners() {
     const toggleFn = this.#toggleOverlay.bind(this);
@@ -317,6 +345,11 @@ class SonosSubsUI {
 
       // Set a new timeout. The actual update will only run after the user stops scrolling.
       this.#volumeScrollTimeout = setTimeout(async () => {
+        // Check if extension context is still valid
+        if (!chrome.runtime?.id) {
+          this.#cleanup();
+          return;
+        }
         // Get latest settings from storage to avoid overwriting other properties (like 'muted').
         const data = await chrome.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, volume: newVolume };
@@ -353,9 +386,10 @@ class SonosSubsUI {
 
     if (type === 'SONOS_TRACK_INFO') {
       const { track, isPlaying, positionMillis } = event.data;
-      const trackName = track.title,
+      const trackId = track.id,
+        trackName = track.title,
         artistName = track.artist,
-        imageUrl = track.imageUrl;
+        durationMillis = track.durationMillis;
 
       // Get existing settings, update, and set back to avoid overwriting.
       const data = await chrome.storage.local.get({ playSettings: {} });
@@ -367,7 +401,18 @@ class SonosSubsUI {
         this.#currentPositionMs = positionMillis;
         this.#lastPositionUpdate = Date.now();
         this.#isSeeking = false; // Reset seeking when we get actual position
+
+        // Update MediaSession position
+        if (this.#mediaSessionEnabled && 'mediaSession' in navigator && durationMillis) {
+          const duration = durationMillis / 1000;
+          const position = Math.min(positionMillis / 1000, duration);
+          navigator.mediaSession.setPositionState({
+            duration: duration,
+            position: position
+          });
+        }
       }
+
       this.#isPlaying = isPlaying;
 
       // Don't do anything else if the track hasn't changed. This can happen when
@@ -377,9 +422,10 @@ class SonosSubsUI {
       }
 
       // New song, so reset the track info and clear the cached lyrics.
-      this.#currentTrack = { trackName, artistName, lyrics: null };
+      this.#currentTrack = { trackId, trackName, artistName, lyrics: null };
       this.#currentLineIndex = -1;
       this.#lyricsLines = [];
+      this.#notificationSent = false; // Reset notification flag for new track
       if (this.#syncInterval) clearInterval(this.#syncInterval);
 
       // If the overlay is visible, refresh the lyrics for the new song.
@@ -389,15 +435,64 @@ class SonosSubsUI {
       }
 
       // Store current song in storage for popup access
-      chrome.storage.local.set({ currentSong: { trackName, artistName, imageUrl } });
+      chrome.storage.local.set({ currentSong: { trackId, trackName, artistName, durationMillis } });
 
-      this.#sendNotificationMessage(trackName, artistName, imageUrl);
+      // Send notification if we have artwork and haven't sent one yet
+      const imageUrl = await this.#getArtworkUrl(trackId)
+      if (imageUrl && !this.#notificationSent) {
+        this.#sendNotificationMessage(trackName, artistName, imageUrl);
+        this.#notificationSent = true;
+      }
+      if (this.#mediaSessionEnabled) {
+        this.#updateMediaSession(trackName, artistName, durationMillis);
+      }
     } else if (type === "SONOS_VOLUME_INFO") {
+      // Check if extension context is still valid
+      if (!chrome.runtime?.id) {
+        this.#cleanup();
+        return;
+      }
       // Get existing settings, update, and set back to avoid overwriting.
       const data = await chrome.storage.local.get({ playSettings: {} });
       const { volume, muted } = event.data;
       const newPlaySettings = { ...data.playSettings, volume, muted };
       await chrome.storage.local.set({ playSettings: newPlaySettings });
+    } else if (type === "SONOS_ARTWORK_UPDATE") {
+      try {
+        if (event.data?.trackId && event.data?.httpsImage) {
+          // Check if extension context is still valid
+          if (!chrome.runtime?.id) {
+            this.#cleanup();
+            return;
+          }
+          const { trackId, httpsImage } = event.data;
+          const { artworkArray } = await chrome.storage.local.get({ artworkArray: {} });
+
+          // Limit artwork cache to 100 items
+          const keys = Object.keys(artworkArray);
+          if (keys.length >= 100) {
+            delete artworkArray[keys[0]];
+          }
+
+          artworkArray[trackId] = httpsImage;
+          await chrome.storage.local.set({ artworkArray });
+
+          // Send notification if this is current track and we haven't sent one yet
+          const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+          if (currentSong.trackId === trackId && !this.#notificationSent) {
+            chrome.storage.local.set({ currentSong: { ...currentSong } });
+            this.#sendNotificationMessage(currentSong.trackName, currentSong.artistName, httpsImage);
+
+            this.#notificationSent = true;
+
+            if (this.#mediaSessionEnabled) {
+              this.#updateMediaSession(currentSong.trackName, currentSong.artistName, currentSong.durationMillis);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(e)
+      }
     }
   }
 
@@ -514,6 +609,16 @@ class SonosSubsUI {
           this.#lyricsFontSize = message.fontSize;
           this.#updateOverlayFontSize();
           sendResponse({ success: true });
+        } else if (message.type === 'MEDIA_SESSION_CHANGED') {
+          this.#mediaSessionEnabled = message.enabled;
+          if (message.enabled && !this.#audioTag) {
+            await this.#setupMediaSession();
+            const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+            this.#updateMediaSession(currentSong.trackName, currentSong.artistName, currentSong.durationMillis);
+          } else if (!message.enabled && this.#audioTag) {
+            this.#cleanupMediaSession();
+          }
+          sendResponse({ success: true });
         }
       })();
 
@@ -523,16 +628,28 @@ class SonosSubsUI {
   }
 
   /**
-   * Loads the font size setting from storage.
+   * Loads settings from storage.
    */
-  async #loadFontSize() {
+  async #loadSettings() {
     try {
-      const result = await chrome.storage.sync.get({ lyricsFontSize: 20 });
+      const result = await chrome.storage.sync.get({ lyricsFontSize: 20, mediaSessionEnabled: true });
       this.#lyricsFontSize = result.lyricsFontSize;
+      this.#mediaSessionEnabled = result.mediaSessionEnabled;
     } catch (error) {
-      console.error('Sonos-Subs: Error loading font size:', error);
+      console.error('Sonos-Subs: Error loading settings:', error);
     }
   }
+
+  /**
+   * Retrieves artwork URL for a given track ID from storage.
+   * @param {string} trackId - The track ID to get artwork for
+   * @returns {Promise<string>} The artwork URL
+   */
+  async #getArtworkUrl(trackId) {
+    const { artworkArray } = await chrome.storage.local.get({ artworkArray: {} });
+    return artworkArray[trackId];
+  }
+
 
   /**
    * Updates the overlay font size.
@@ -674,6 +791,199 @@ class SonosSubsUI {
   }
 
   /**
+   * Converts an image URL to a data URL for use in MediaSession.
+   * @param {string} imageUrl - The URL of the image to convert
+   * @returns {Promise<string>} The data URL representation of the image
+   */
+  async #getImageDataUrl(imageUrl) {
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.warn(`Sonos-Subs: Image fetch failed for ${imageUrl}:`, error.message);
+    }
+  }
+
+  /**
+   * Shows the current track artwork in a Picture-in-Picture window.
+   */
+  async #showPictureInPictureWindow() {
+    const artworkSrc = [...navigator.mediaSession.metadata.artwork].pop().src;
+    const response = await fetch(artworkSrc);
+    const blob = await response.blob();
+    const image = await createImageBitmap(blob);
+
+    if (!this.#pipCanvas || !this.#pipVideo) return;
+
+    this.#pipCanvas.getContext('2d').drawImage(image, 0, 0, 512, 512);
+    this.#pipVideo.srcObject = this.#pipCanvas.captureStream();
+
+    await this.#audioTag.play();
+    await this.#pipVideo.play();
+    await this.#pipVideo.requestPictureInPicture();
+    if (!this.#isPlaying) {
+      this.#audioTag.pause();
+      this.#pipVideo.pause();
+    }
+  }
+
+
+  /**
+   * Sets up MediaSession API for media controls
+   */
+  async #setupMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+
+    this.#audioTag = document.createElement('audio');
+    document.body.appendChild(this.#audioTag);
+    this.#audioTag.src = chrome.runtime.getURL("10-seconds-of-silence.mp3");
+    this.#audioTag.loop = true;
+    this.#audioTag.autoplay = true;
+
+    await this.#audioTag.play();
+    if (!this.#isPlaying) await this.#audioTag.pause();
+
+    // Set audio listeners
+    this.#audioTag.addEventListener('play', async () => {
+      if (!chrome.runtime?.id) {
+        this.#cleanup();
+        return;
+      }
+      if (this.#mediaSessionEnabled) {
+        navigator.mediaSession.playbackState = "playing"
+        window.postMessage({ type: 'SONOS_COMMAND', command: 'play', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
+
+        const data = await chrome.storage.local.get({ playSettings: {} });
+        const newPlaySettings = { ...data.playSettings, isPlaying: true };
+        await chrome.storage.local.set({ playSettings: newPlaySettings });
+      }
+    });
+    this.#audioTag.addEventListener('pause', async () => {
+      if (!chrome.runtime?.id) {
+        this.#cleanup();
+        return;
+      }
+      if (this.#mediaSessionEnabled) {
+        window.postMessage({ type: 'SONOS_COMMAND', command: 'pause', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
+        navigator.mediaSession.playbackState = "paused"
+
+        const data = await chrome.storage.local.get({ playSettings: {} });
+        const newPlaySettings = { ...data.playSettings, isPlaying: false };
+        await chrome.storage.local.set({ playSettings: newPlaySettings });
+      }
+    });
+
+    // Set media listeners
+    const artwork = await this.#getImageDataUrl(chrome.runtime.getURL('icons/icon.png'))
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'Sonos Subs',
+      artist: 'Loading information',
+      artwork: [{ src: artwork }]
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      window.postMessage({ type: 'SONOS_COMMAND', command: 'skipBack', props: {} }, window.location.origin);
+      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0 });
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      window.postMessage({ type: 'SONOS_COMMAND', command: 'skipToNextTrack', props: {} }, window.location.origin);
+      navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: 0 });
+    });
+
+    try {
+      navigator.mediaSession.setActionHandler('seekto', (event) => {
+        chrome.runtime.sendMessage({ type: 'SONOS_SEEK_SONG', positionMillis: event.seekTime * 1000 });
+        navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: event.seekTime });
+      });
+    } catch (error) {
+      console.warn('Warning! The "seekto" media session action is not supported.', error);
+    }
+
+    // PiP controls
+    navigator.mediaSession.setActionHandler('play', () => {
+      this.#pipVideo?.play();
+      this.#audioTag?.play();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      this.#pipVideo?.pause();
+      this.#audioTag?.pause();
+    });
+    try {
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
+        this.#showPictureInPictureWindow();
+      });
+    } catch (error) {
+      console.warn('Warning! The "enterpictureinpicture" media session action is not supported.', error);
+    }
+
+    // Hide the others
+    navigator.mediaSession.setActionHandler("stop", null);
+    navigator.mediaSession.setActionHandler("seekbackward", null);
+    navigator.mediaSession.setActionHandler("seekforward", null);
+  }
+
+  /**
+   * Updates MediaSession metadata and playback state
+   * @param {string} trackName
+   * @param {string} artistName
+   * @param {number} durationMillis
+   */
+  async #updateMediaSession(trackName, artistName, durationMillis) {
+    if (!('mediaSession' in navigator) || !this.#mediaSessionEnabled) return;
+
+    const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+    const artwork = await this.#getArtworkUrl(currentSong.trackId)
+    if (artwork) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: trackName,
+        artist: artistName,
+        artwork: [{ src: artwork ?? null }]
+      });
+    }
+
+    if (durationMillis) {
+      const duration = durationMillis / 1000;
+      const position = Math.min(this.#currentPositionMs / 1000, duration);
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        position: position
+      });
+    }
+
+    navigator.mediaSession.playbackState = this.#isPlaying ? "playing" : "paused";
+
+    if (document.pictureInPictureElement) {
+      this.#showPictureInPictureWindow();
+    }
+  }
+
+  /**
+   * Cleans up MediaSession components
+   */
+  #cleanupMediaSession() {
+    if (this.#audioTag) {
+      this.#audioTag.remove();
+      this.#audioTag = null;
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = "none"
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.setActionHandler('previoustrack', null);
+      navigator.mediaSession.setActionHandler('nexttrack', null);
+      navigator.mediaSession.setActionHandler('seekto', null);
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+      navigator.mediaSession.setPositionState({ duration: 0, playbackRate: 1, position: 0 })
+    }
+  }
+
+  /**
    * Cleans up listeners and observers to prevent errors in an
    * invalidated extension context.
    */
@@ -684,6 +994,7 @@ class SonosSubsUI {
     if (this.#syncInterval) {
       clearInterval(this.#syncInterval);
     }
+    this.#cleanupMediaSession();
     this.#observer?.disconnect();
     console.log("Sonos-Subs: Cleaned up orphaned content script listeners.");
   }

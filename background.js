@@ -50,8 +50,6 @@ async function sendSonosCommand(command) {
   }
 }
 
-
-
 // In background script 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SONOS_TRACK_INFO') {
@@ -131,4 +129,4 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     const command = buttonIndex === 0 ? 'skipBack' : 'skipToNextTrack';
     await sendSonosCommand(command);
   }
-});
+}); 

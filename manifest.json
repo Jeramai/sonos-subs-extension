@@ -30,7 +30,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["patch.js"],
+      "resources": ["patch.js", "10-seconds-of-silence.mp3", "icons/icon.png"],
       "matches": ["https://play.sonos.com/*"]
     }
   ]

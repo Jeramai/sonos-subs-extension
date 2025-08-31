@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const volumeLevel = document.getElementById('volumeLevel');
   const fontSizeSlider = document.getElementById('fontSizeSlider');
   const fontSizeValue = document.getElementById('fontSizeValue');
+  const mediaSessionToggle = document.getElementById('mediaSessionToggle');
 
   /**
    * Attaches a click listener to a button to send a command to the background script.
@@ -20,8 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Load the saved settings and update the UI state.
-  chrome.storage.sync.get({ notificationsEnabled: true, lyricsFontSize: 16 }, (items) => {
+  chrome.storage.sync.get({ notificationsEnabled: true, lyricsFontSize: 16, mediaSessionEnabled: true }, (items) => {
     notificationsToggle.checked = items.notificationsEnabled;
+    mediaSessionToggle.checked = items.mediaSessionEnabled;
     fontSizeSlider.value = items.lyricsFontSize;
     fontSizeValue.textContent = items.lyricsFontSize + 'pt';
   });
@@ -29,6 +31,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // Save the notification setting whenever the toggle is changed.
   notificationsToggle.addEventListener('change', () => {
     chrome.storage.sync.set({ notificationsEnabled: notificationsToggle.checked });
+  });
+
+  // Save the media session setting whenever the toggle is changed.
+  mediaSessionToggle.addEventListener('change', () => {
+    chrome.storage.sync.set({ mediaSessionEnabled: mediaSessionToggle.checked });
+
+    // Notify content script of media session setting change
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, {
+          type: 'MEDIA_SESSION_CHANGED',
+          enabled: mediaSessionToggle.checked
+        });
+      }
+    });
   });
 
   // Handle font size changes
@@ -203,14 +220,23 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Get current song and playback information from storage for initial load
-  chrome.storage.local.get(['currentSong', 'playSettings'], (result) => {
+  chrome.storage.local.get(['currentSong', 'playSettings', 'artworkArray'], (result) => {
+    if (result.currentSong?.trackId && result.artworkArray?.[result.currentSong.trackId]) {
+      result.currentSong.imageUrl = result.artworkArray[result.currentSong.trackId];
+    }
     updatePopupUI(result);
   });
 
   // Listen for updates from the background script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'SONG_UPDATED') {
-      updatePopupUI(message.data);
+      chrome.storage.local.get(['artworkArray'], (result) => {
+        const data = message.data;
+        if (data.currentSong?.trackId && result.artworkArray?.[data.currentSong.trackId]) {
+          data.currentSong.imageUrl = result.artworkArray[data.currentSong.trackId];
+        }
+        updatePopupUI(data);
+      });
     }
   });
 });

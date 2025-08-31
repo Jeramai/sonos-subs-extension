@@ -21,10 +21,12 @@ window.WebSocket = function (url, protocols) {
         const positionMillis = messageText?.[1]?.playback?.positionMillis ?? 0
         if (track && track.name && track.artist?.name) {
           const trackInfo = {
+            id: track.id.objectId,
             artist: track.artist.name,
             title: track.name,
             album: track.album?.name,
-            imageUrl: track.imageUrl,
+            imageUrl: null,
+            durationMillis: track.durationMillis
           };
 
           const isPlaying = messageText?.[1]?.playback?.playbackState === "PLAYBACK_STATE_PLAYING"
@@ -51,7 +53,6 @@ window.WebSocket = function (url, protocols) {
   socket.addEventListener('message', messageListener);
   return socket;
 };
-
 window.WebSocket.prototype = OriginalWebSocket.prototype;
 
 // Listen for commands from content script
@@ -83,4 +84,40 @@ window.addEventListener('message', (event) => {
     );
     currentSocket.send(commandMessage);
   }
-}); 
+});
+
+const originalFetch = window.fetch;
+window.fetch = async function (...args) {
+  // Log every fetch request for debugging purposes.
+  const url = (args[0] instanceof Request) ? args[0].url : args[0];
+
+  // Intercept the `nowplaying` API call
+  if (typeof url === 'string' && url.includes('nowplaying')) {
+    // Call the original fetch and then process the response
+    try {
+      const response = await originalFetch(...args);
+      // Ensure the response is cloned so we can read it without
+      // preventing the original page's code from reading it.
+      const clonedResponse = response.clone();
+      clonedResponse.json().then(data => {
+        // Check if the data has the song information
+        const trackId = data.item.resource.id.objectId;
+        const httpsImage = data.images.tile1x1;
+
+        // Send to content script
+        window.postMessage({
+          type: 'SONOS_ARTWORK_UPDATE',
+          trackId,
+          httpsImage
+        }, window.location.origin);
+      }).catch(e => console.error("Error processing nowplaying response:", e));
+      return response;
+    } catch (e_1) {
+      console.error("Error during fetch interception:", e_1);
+      // Re-throw the error so the original application sees it
+      throw e_1;
+    }
+  }
+  // For all other requests, just pass them through to the original `fetch`
+  return originalFetch(...args);
+};

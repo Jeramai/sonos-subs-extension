@@ -1,3 +1,6 @@
+const browserAPI = (typeof browser !== "undefined" ? browser : chrome)
+const isFirefox = typeof browser !== 'undefined' && browser.runtime;
+
 /**
  * Manages the UI for the Sonos Subs extension, including a lyrics overlay
  * and a toggle button in the header.
@@ -70,7 +73,7 @@ class SonosSubsUI {
    */
   #injectScript(filePath) {
     const script = document.createElement('script');
-    script.src = chrome.runtime.getURL(filePath);
+    script.src = browserAPI.runtime.getURL(filePath);
     script.onload = () => script.remove();
     (document.head || document.documentElement).appendChild(script);
   }
@@ -312,7 +315,7 @@ class SonosSubsUI {
     if (volumeElement && !isNaN(parseInt(volumeElement.textContent, 10))) {
       currentVolume = parseInt(volumeElement.textContent, 10);
     } else {
-      const data = await chrome.storage.local.get({ playSettings: { volume: 50 } });
+      const data = await browserAPI.storage.local.get({ playSettings: { volume: 50 } });
       currentVolume = data.playSettings.volume;
     }
 
@@ -346,14 +349,14 @@ class SonosSubsUI {
       // Set a new timeout. The actual update will only run after the user stops scrolling.
       this.#volumeScrollTimeout = setTimeout(async () => {
         // Check if extension context is still valid
-        if (!chrome.runtime?.id) {
+        if (!browserAPI.runtime?.id) {
           this.#cleanup();
           return;
         }
         // Get latest settings from storage to avoid overwriting other properties (like 'muted').
-        const data = await chrome.storage.local.get({ playSettings: {} });
+        const data = await browserAPI.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, volume: newVolume };
-        await chrome.storage.local.set({ playSettings: newPlaySettings });
+        await browserAPI.storage.local.set({ playSettings: newPlaySettings });
 
         // Send the command to the injected script to change the actual Sonos volume.
         window.postMessage({
@@ -370,9 +373,9 @@ class SonosSubsUI {
    * @param {CustomEvent} event The event containing song details.
    */
   async #handleNowPlaying(event) {
-    // If the extension context is invalidated (e.g., on reload), chrome.runtime will be undefined.
-    // This check prevents errors when trying to access chrome APIs in an orphaned script.
-    if (!chrome.runtime?.id) {
+    // If the extension context is invalidated (e.g., on reload), browserAPI.runtime will be undefined.
+    // This check prevents errors when trying to access browserAPI APIs in an orphaned script.
+    if (!browserAPI.runtime?.id) {
       this.#cleanup();
       return;
     }
@@ -391,9 +394,9 @@ class SonosSubsUI {
         durationMillis = track.durationMillis;
 
       // Get existing settings, update, and set back to avoid overwriting.
-      const data = await chrome.storage.local.get({ playSettings: {} });
+      const data = await browserAPI.storage.local.get({ playSettings: {} });
       const newPlaySettings = { ...data.playSettings, isPlaying };
-      await chrome.storage.local.set({ playSettings: newPlaySettings });
+      await browserAPI.storage.local.set({ playSettings: newPlaySettings });
 
       // Update current position and playing state for lyrics sync
       if (positionMillis !== undefined) {
@@ -440,7 +443,7 @@ class SonosSubsUI {
       }
 
       // Store current song in storage for popup access
-      chrome.storage.local.set({ currentSong: { trackId, trackName, artistName, durationMillis } });
+      browserAPI.storage.local.set({ currentSong: { trackId, trackName, artistName, durationMillis } });
 
       // Send notification if we have artwork and haven't sent one yet
       const imageUrl = await this.#getArtworkUrl(trackId)
@@ -455,25 +458,25 @@ class SonosSubsUI {
       }
     } else if (type === "SONOS_VOLUME_INFO") {
       // Check if extension context is still valid
-      if (!chrome.runtime?.id) {
+      if (!browserAPI.runtime?.id) {
         this.#cleanup();
         return;
       }
       // Get existing settings, update, and set back to avoid overwriting.
-      const data = await chrome.storage.local.get({ playSettings: {} });
+      const data = await browserAPI.storage.local.get({ playSettings: {} });
       const { volume, muted } = event.data;
       const newPlaySettings = { ...data.playSettings, volume, muted };
-      await chrome.storage.local.set({ playSettings: newPlaySettings });
+      await browserAPI.storage.local.set({ playSettings: newPlaySettings });
     } else if (type === "SONOS_ARTWORK_UPDATE") {
       try {
         if (event.data?.trackId && event.data?.httpsImage) {
           // Check if extension context is still valid
-          if (!chrome.runtime?.id) {
+          if (!browserAPI.runtime?.id) {
             this.#cleanup();
             return;
           }
           const { trackId, httpsImage } = event.data;
-          const { artworkArray } = await chrome.storage.local.get({ artworkArray: {} });
+          const { artworkArray } = await browserAPI.storage.local.get({ artworkArray: {} });
 
           // Limit artwork cache to 100 items
           const keys = Object.keys(artworkArray);
@@ -482,12 +485,12 @@ class SonosSubsUI {
           }
 
           artworkArray[trackId] = httpsImage;
-          await chrome.storage.local.set({ artworkArray });
+          await browserAPI.storage.local.set({ artworkArray });
 
           // Send notification if this is current track and we haven't sent one yet
-          const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+          const { currentSong } = await browserAPI.storage.local.get({ currentSong: {} });
           if (currentSong.trackId === trackId && !this.#notificationSent) {
-            chrome.storage.local.set({ currentSong: { ...currentSong } });
+            browserAPI.storage.local.set({ currentSong: { ...currentSong } });
             this.#sendNotificationMessage(currentSong.trackName, currentSong.artistName, httpsImage);
 
             this.#notificationSent = true;
@@ -512,7 +515,7 @@ class SonosSubsUI {
   #sendNotificationMessage(trackName, artistName, imageUrl) {
     try {
       // Send the song data to the background script.
-      chrome.runtime.sendMessage({ type: 'SONOS_TRACK_INFO', data: { trackName, artistName, imageUrl } }, () => { });
+      browserAPI.runtime.sendMessage({ type: 'SONOS_TRACK_INFO', data: { trackName, artistName, imageUrl } }, () => { });
     } catch (error) {
       // This error is expected if the extension was reloaded and this is an old,
       // orphaned content script. We clean up to prevent further errors.
@@ -586,7 +589,7 @@ class SonosSubsUI {
    * Sets up listener for commands from the background script
    */
   #setupCommandListener() {
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Use an immediately-invoked async function expression (IIFE) to handle
       // async logic inside the synchronous listener.
       (async () => {
@@ -599,11 +602,11 @@ class SonosSubsUI {
             props = { "allowTvPauseRestore": true, "deviceFeedback": "NONE" }
           }
           if (command === 'setMute') {
-            const { playSettings } = await chrome.storage.local.get('playSettings');
+            const { playSettings } = await browserAPI.storage.local.get('playSettings');
             props = { muted: playSettings.muted }
           }
           else if (command === 'setVolume') {
-            const { playSettings } = await chrome.storage.local.get('playSettings');
+            const { playSettings } = await browserAPI.storage.local.get('playSettings');
             props = { volume: playSettings.volume }
           }
           else if (command === 'seek') {
@@ -620,7 +623,7 @@ class SonosSubsUI {
           this.#mediaSessionEnabled = message.enabled;
           if (message.enabled && !this.#audioTag) {
             await this.#setupMediaSession();
-            const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+            const { currentSong } = await browserAPI.storage.local.get({ currentSong: {} });
             this.#updateMediaSession(currentSong.trackName, currentSong.artistName, currentSong.durationMillis);
           } else if (!message.enabled && this.#audioTag) {
             this.#cleanupMediaSession();
@@ -639,7 +642,7 @@ class SonosSubsUI {
    */
   async #loadSettings() {
     try {
-      const result = await chrome.storage.sync.get({ lyricsFontSize: 20, mediaSessionEnabled: true });
+      const result = await browserAPI.storage.sync.get({ lyricsFontSize: 20, mediaSessionEnabled: true });
       this.#lyricsFontSize = result.lyricsFontSize;
       this.#mediaSessionEnabled = result.mediaSessionEnabled;
     } catch (error) {
@@ -653,7 +656,7 @@ class SonosSubsUI {
    * @returns {Promise<string>} The artwork URL
    */
   async #getArtworkUrl(trackId) {
-    const { artworkArray } = await chrome.storage.local.get({ artworkArray: {} });
+    const { artworkArray } = await browserAPI.storage.local.get({ artworkArray: {} });
     return artworkArray[trackId];
   }
 
@@ -716,7 +719,7 @@ class SonosSubsUI {
       lineElement.addEventListener('click', () => {
         this.#isSeeking = true;
         this.#highlightLine(index);
-        chrome.runtime.sendMessage({
+        browserAPI.runtime.sendMessage({
           type: 'SONOS_SEEK_SONG',
           positionMillis: line.time
         });
@@ -846,7 +849,9 @@ class SonosSubsUI {
     await this.#audioTag.dispatchEvent(evt);
     await this.#pipVideo.play()
 
-    await this.#pipVideo.requestPictureInPicture();
+    // Picture-in-picture action (Chrome only)
+    if (!isFirefox) await this.#pipVideo.requestPictureInPicture();
+
     if (!this.#isPlaying) {
       const evt = new CustomEvent("pause", { detail: { silent: true } });
       this.#audioTag.dispatchEvent(evt);
@@ -863,7 +868,7 @@ class SonosSubsUI {
 
     this.#audioTag = document.createElement('audio');
     document.body.appendChild(this.#audioTag);
-    this.#audioTag.src = chrome.runtime.getURL("10-seconds-of-silence.mp3");
+    this.#audioTag.src = browserAPI.runtime.getURL("10-seconds-of-silence.mp3");
     this.#audioTag.loop = true;
     this.#audioTag.autoplay = true;
 
@@ -871,32 +876,32 @@ class SonosSubsUI {
 
     // Set audio listeners
     this.#audioTag.addEventListener('play', async (e) => {
-      if (!chrome.runtime?.id) {
+      if (!browserAPI.runtime?.id) {
         this.#cleanup();
         return;
       }
       if (this.#mediaSessionEnabled) {
         navigator.mediaSession.playbackState = "playing"
 
-        const data = await chrome.storage.local.get({ playSettings: {} });
+        const data = await browserAPI.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, isPlaying: true };
-        await chrome.storage.local.set({ playSettings: newPlaySettings });
+        await browserAPI.storage.local.set({ playSettings: newPlaySettings });
 
         if (e.detail?.silent) return
         window.postMessage({ type: 'SONOS_COMMAND', command: 'play', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
       }
     });
     this.#audioTag.addEventListener('pause', async (e) => {
-      if (!chrome.runtime?.id) {
+      if (!browserAPI.runtime?.id) {
         this.#cleanup();
         return;
       }
       if (this.#mediaSessionEnabled) {
         navigator.mediaSession.playbackState = "paused"
 
-        const data = await chrome.storage.local.get({ playSettings: {} });
+        const data = await browserAPI.storage.local.get({ playSettings: {} });
         const newPlaySettings = { ...data.playSettings, isPlaying: false };
-        await chrome.storage.local.set({ playSettings: newPlaySettings });
+        await browserAPI.storage.local.set({ playSettings: newPlaySettings });
 
         if (e.detail?.silent) return
         window.postMessage({ type: 'SONOS_COMMAND', command: 'pause', props: { "allowTvPauseRestore": true, "deviceFeedback": "NONE" } }, window.location.origin);
@@ -904,7 +909,7 @@ class SonosSubsUI {
     });
 
     // Set media listeners
-    const artwork = await this.#getImageDataUrl(chrome.runtime.getURL('icons/icon.png'))
+    const artwork = await this.#getImageDataUrl(browserAPI.runtime.getURL('icons/icon.png'))
     navigator.mediaSession.metadata = new MediaMetadata({
       title: 'Sonos Subs',
       artist: 'Loading information',
@@ -922,7 +927,7 @@ class SonosSubsUI {
 
     try {
       navigator.mediaSession.setActionHandler('seekto', (event) => {
-        chrome.runtime.sendMessage({ type: 'SONOS_SEEK_SONG', positionMillis: event.seekTime * 1000 });
+        browserAPI.runtime.sendMessage({ type: 'SONOS_SEEK_SONG', positionMillis: event.seekTime * 1000 });
         navigator.mediaSession.setPositionState({ duration: this.#audioTag.duration, position: event.seekTime, playbackRate: 1 });
       });
     } catch (error) {
@@ -938,12 +943,15 @@ class SonosSubsUI {
       this.#pipVideo?.pause();
       this.#audioTag?.pause();
     });
-    try {
-      navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
-        this.#showPictureInPictureWindow();
-      });
-    } catch (error) {
-      console.warn('Warning! The "enterpictureinpicture" media session action is not supported.', error);
+    // Picture-in-picture action (Chrome only) 
+    if (!isFirefox) {
+      try {
+        navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
+          this.#showPictureInPictureWindow();
+        });
+      } catch (error) {
+        console.warn('Warning! The "enterpictureinpicture" media session action is not supported.', error);
+      }
     }
 
     // Hide the others
@@ -961,7 +969,7 @@ class SonosSubsUI {
   async #updateMediaSession(trackName, artistName, durationMillis) {
     if (!('mediaSession' in navigator) || !this.#mediaSessionEnabled) return;
 
-    const { currentSong } = await chrome.storage.local.get({ currentSong: {} });
+    const { currentSong } = await browserAPI.storage.local.get({ currentSong: {} });
     const artwork = await this.#getArtworkUrl(currentSong.trackId)
     if (artwork) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -1010,7 +1018,10 @@ class SonosSubsUI {
       navigator.mediaSession.setActionHandler('previoustrack', null);
       navigator.mediaSession.setActionHandler('nexttrack', null);
       navigator.mediaSession.setActionHandler('seekto', null);
-      navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+
+      // Picture-in-picture action (Chrome only) 
+      if (!isFirefox) navigator.mediaSession.setActionHandler('enterpictureinpicture', null);
+
       navigator.mediaSession.setPositionState({ duration: 0, playbackRate: 1, position: 0 })
     }
   }

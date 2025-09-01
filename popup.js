@@ -1,3 +1,5 @@
+const browserAPI = (typeof browser !== "undefined" ? browser : chrome)
+
 document.addEventListener('DOMContentLoaded', () => {
   const notificationsToggle = document.getElementById('notificationsToggle');
   const volumeSlider = document.getElementById('volumeSlider');
@@ -6,6 +8,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const fontSizeSlider = document.getElementById('fontSizeSlider');
   const fontSizeValue = document.getElementById('fontSizeValue');
   const mediaSessionToggle = document.getElementById('mediaSessionToggle');
+
+  // Detect if running in Firefox and hide Media Session Controls
+  const isFirefox = typeof browser !== 'undefined' && browser.runtime;
+  if (isFirefox && mediaSessionToggle) {
+    mediaSessionToggle.closest('.setting').style.display = 'none';
+  }
 
   /**
    * Attaches a click listener to a button to send a command to the background script.
@@ -16,48 +24,50 @@ document.addEventListener('DOMContentLoaded', () => {
   const addCommandListener = (button, messageType, optimisticUpdate) => {
     button.addEventListener('click', () => {
       if (optimisticUpdate) optimisticUpdate(button);
-      chrome.runtime.sendMessage({ type: messageType });
+      browserAPI.runtime.sendMessage({ type: messageType });
     });
   };
 
   // Load the saved settings and update the UI state.
-  chrome.storage.sync.get({ notificationsEnabled: true, lyricsFontSize: 16, mediaSessionEnabled: true }, (items) => {
+  browserAPI.storage.sync.get({ notificationsEnabled: true, lyricsFontSize: 16, mediaSessionEnabled: true }, (items) => {
     notificationsToggle.checked = items.notificationsEnabled;
-    mediaSessionToggle.checked = items.mediaSessionEnabled;
+    mediaSessionToggle.checked = isFirefox ? false : items.mediaSessionEnabled;
     fontSizeSlider.value = items.lyricsFontSize;
     fontSizeValue.textContent = items.lyricsFontSize + 'pt';
   });
 
   // Save the notification setting whenever the toggle is changed.
   notificationsToggle.addEventListener('change', () => {
-    chrome.storage.sync.set({ notificationsEnabled: notificationsToggle.checked });
+    browserAPI.storage.sync.set({ notificationsEnabled: notificationsToggle.checked });
   });
 
-  // Save the media session setting whenever the toggle is changed.
-  mediaSessionToggle.addEventListener('change', () => {
-    chrome.storage.sync.set({ mediaSessionEnabled: mediaSessionToggle.checked });
+  // Save the media session setting whenever the toggle is changed (Chrome only).
+  if (!isFirefox && mediaSessionToggle) {
+    mediaSessionToggle.addEventListener('change', () => {
+      browserAPI.storage.sync.set({ mediaSessionEnabled: mediaSessionToggle.checked });
 
-    // Notify content script of media session setting change
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'MEDIA_SESSION_CHANGED',
-          enabled: mediaSessionToggle.checked
-        });
-      }
+      // Notify content script of media session setting change
+      browserAPI.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+          browserAPI.tabs.sendMessage(tabs[0].id, {
+            type: 'MEDIA_SESSION_CHANGED',
+            enabled: mediaSessionToggle.checked
+          });
+        }
+      });
     });
-  });
+  }
 
   // Handle font size changes
   fontSizeSlider.addEventListener('input', () => {
     const fontSize = parseInt(fontSizeSlider.value, 10);
     fontSizeValue.textContent = fontSize + 'pt';
-    chrome.storage.sync.set({ lyricsFontSize: fontSize });
+    browserAPI.storage.sync.set({ lyricsFontSize: fontSize });
 
     // Notify content script of font size change
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    browserAPI.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
-        chrome.tabs.sendMessage(tabs[0].id, {
+        browserAPI.tabs.sendMessage(tabs[0].id, {
           type: 'FONT_SIZE_CHANGED',
           fontSize: fontSize
         });
@@ -85,7 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (supportLink) {
     supportLink.addEventListener('click', (e) => {
       e.preventDefault();
-      chrome.tabs.create({ url: 'https://www.paypal.com/donate/?hosted_button_id=B9ZKW9Y6GDP86' });
+      browserAPI.tabs.create({ url: 'https://www.paypal.com/donate/?hosted_button_id=B9ZKW9Y6GDP86' });
     });
   }
 
@@ -96,11 +106,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Optimistically update the volume level display and slider progress
       volumeSlider.style.setProperty('--slider-progress', `${volume}%`);
       volumeLevel.innerHTML = volume;
-      chrome.runtime.sendMessage({ type: 'SONOS_SET_VOLUME', volume });
+      browserAPI.runtime.sendMessage({ type: 'SONOS_SET_VOLUME', volume });
 
-      const data = await chrome.storage.local.get({ playSettings: {} });
+      const data = await browserAPI.storage.local.get({ playSettings: {} });
       const newPlaySettings = { ...data.playSettings, volume };
-      chrome.storage.local.set({ playSettings: newPlaySettings });
+      browserAPI.storage.local.set({ playSettings: newPlaySettings });
     });
 
     volumeSlider.addEventListener('wheel', async (event) => {
@@ -211,16 +221,16 @@ document.addEventListener('DOMContentLoaded', () => {
         muteButton.innerHTML = muted ? ICONS.volumeOff : ICONS.volumeOn;
 
         const newPlaySettings = { ...data.playSettings, muted };
-        await chrome.storage.local.set({ playSettings: newPlaySettings });
+        await browserAPI.storage.local.set({ playSettings: newPlaySettings });
 
         // Send command
-        chrome.runtime.sendMessage({ type: 'SONOS_TOGGLE_MUTE' });
+        browserAPI.runtime.sendMessage({ type: 'SONOS_TOGGLE_MUTE' });
       };
     }
   };
 
   // Get current song and playback information from storage for initial load
-  chrome.storage.local.get(['currentSong', 'playSettings', 'artworkArray'], (result) => {
+  browserAPI.storage.local.get(['currentSong', 'playSettings', 'artworkArray'], (result) => {
     if (result.currentSong?.trackId && result.artworkArray?.[result.currentSong.trackId]) {
       result.currentSong.imageUrl = result.artworkArray[result.currentSong.trackId];
     }
@@ -228,9 +238,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Listen for updates from the background script
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'SONG_UPDATED') {
-      chrome.storage.local.get(['artworkArray'], (result) => {
+      browserAPI.storage.local.get(['artworkArray'], (result) => {
         const data = message.data;
         if (data.currentSong?.trackId && result.artworkArray?.[data.currentSong.trackId]) {
           data.currentSong.imageUrl = result.artworkArray[data.currentSong.trackId];

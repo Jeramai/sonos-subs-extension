@@ -1,3 +1,5 @@
+const browserAPI = (typeof browser !== "undefined" ? browser : chrome)
+
 const NOTIFICATION_ID = "sonos-now-playing-notification";
 const SONOS_URL = "https://play.sonos.com/*";
 
@@ -28,22 +30,22 @@ async function getImageDataUrl(imageUrl, fallbackUrl) {
 }
 async function broadcastStateUpdate() {
   try {
-    const latestState = await chrome.storage.local.get(['currentSong', 'playSettings']);
+    const latestState = await browserAPI.storage.local.get(['currentSong', 'playSettings']);
     if (latestState.currentSong || latestState.playSettings) {
-      chrome.runtime.sendMessage({ type: 'SONG_UPDATED', data: latestState });
+      browserAPI.runtime.sendMessage({ type: 'SONG_UPDATED', data: latestState });
     }
   } catch (error) {
-    console.error('Sonos-Subs: Broadcast failed:', error);
+    console.warn('Sonos-Subs: Broadcast failed:', error);
   }
 }
 async function sendSonosCommand(command) {
-  const [sonosTab] = await chrome.tabs.query({ url: SONOS_URL });
+  const [sonosTab] = await browserAPI.tabs.query({ url: SONOS_URL });
   if (!sonosTab) {
     console.warn('Sonos-Subs: No active Sonos tab found');
     return;
   }
   try {
-    await chrome.tabs.sendMessage(sonosTab.id, { action: 'sendSonosCommand', command });
+    await browserAPI.tabs.sendMessage(sonosTab.id, { action: 'sendSonosCommand', command });
     console.log(`Sonos-Subs: Sent '${command}' command`);
   } catch (error) {
     console.warn('Sonos-Subs: Command failed:', error.message);
@@ -51,33 +53,41 @@ async function sendSonosCommand(command) {
 }
 
 // In background script 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+browserAPI.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'SONOS_TRACK_INFO') {
     (async () => {
       broadcastStateUpdate();
 
-      if (!chrome.storage) {
+      if (!browserAPI.storage) {
         console.error("Sonos-Subs: Storage API unavailable");
         return;
       }
 
       try {
-        const { notificationsEnabled = true } = await chrome.storage.sync.get('notificationsEnabled');
+        const { notificationsEnabled = true } = await browserAPI.storage.sync.get('notificationsEnabled');
         if (!notificationsEnabled) return;
 
         const { trackName, artistName, imageUrl } = message.data;
-        const iconUrl = await getImageDataUrl(imageUrl, chrome.runtime.getURL('icons/icon128.png'));
+        const iconUrl = await getImageDataUrl(imageUrl, browserAPI.runtime.getURL('icons/icon128.png'));
 
-        await chrome.notifications.clear(NOTIFICATION_ID);
-        await chrome.notifications.create(NOTIFICATION_ID, {
+        await browserAPI.notifications.clear(NOTIFICATION_ID);
+
+        const notificationData = {
           type: 'basic',
           iconUrl,
           title: trackName,
           message: `by ${artistName}`,
-          silent: true,
-          priority: 1,
-          buttons: [{ title: 'Previous' }, { title: 'Next' }]
-        });
+        };
+
+        // these only work on chrome API
+        const isFirefox = typeof browser !== 'undefined' && browser.runtime;
+        if (!isFirefox) {
+          notificationData.silent = true;
+          notificationData.priority = 1;
+          notificationData.buttons = [{ title: 'Previous' }, { title: 'Next' }];
+        }
+
+        await browserAPI.notifications.create(NOTIFICATION_ID, notificationData);
       } catch (error) {
         console.error("Sonos-Subs: Notification failed:", error.message);
       }
@@ -85,13 +95,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   else if (message.type === 'SONOS_SEEK_SONG') {
     (async () => {
-      const [sonosTab] = await chrome.tabs.query({ url: SONOS_URL });
+      const [sonosTab] = await browserAPI.tabs.query({ url: SONOS_URL });
       if (!sonosTab) {
         console.warn('Sonos-Subs: No active Sonos tab found');
         return;
       }
       try {
-        await chrome.tabs.sendMessage(sonosTab.id, {
+        await browserAPI.tabs.sendMessage(sonosTab.id, {
           action: 'sendSonosCommand',
           command: 'seek',
           positionMillis: message.positionMillis
@@ -105,7 +115,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   else if (COMMAND_MAP[message.type]) {
     (async () => {
       try {
-        const { playSettings } = await chrome.storage.local.get('playSettings');
+        const { playSettings } = await browserAPI.storage.local.get('playSettings');
         const isPlaying = playSettings?.isPlaying || false;
         const command = COMMAND_MAP[message.type](isPlaying);
         await sendSonosCommand(command);
@@ -115,16 +125,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
   }
 });
-chrome.notifications.onClicked.addListener(async (notificationId) => {
+browserAPI.notifications.onClicked.addListener(async (notificationId) => {
   if (notificationId !== NOTIFICATION_ID) return;
 
-  const [sonosTab] = await chrome.tabs.query({ url: SONOS_URL });
+  const [sonosTab] = await browserAPI.tabs.query({ url: SONOS_URL });
   if (sonosTab) {
-    await chrome.windows.update(sonosTab.windowId, { focused: true });
-    await chrome.tabs.update(sonosTab.id, { active: true });
+    await browserAPI.windows.update(sonosTab.windowId, { focused: true });
+    await browserAPI.tabs.update(sonosTab.id, { active: true });
   }
 });
-chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+browserAPI.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
   if (notificationId === NOTIFICATION_ID) {
     const command = buttonIndex === 0 ? 'skipBack' : 'skipToNextTrack';
     await sendSonosCommand(command);
